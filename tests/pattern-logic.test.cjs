@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 const source = fs.readFileSync('app.js', 'utf8');
+const html = fs.readFileSync('index.html', 'utf8');
 const prefix = source.slice(0, source.indexOf('function generatePattern()'));
 const fakeElement = () => ({
   checked: true,
@@ -131,5 +132,10 @@ assert.doesNotMatch(source, /state\.view === 'codes' && cell >=/, 'mobile-sized 
 assert.doesNotMatch(source, /backgroundToggle|outlineToggle|addSubjectOutline/, 'legacy independent toggles must stay removed');
 assert.match(source, /name="templateMode"/, 'automatic template mode selector must be wired');
 assert.match(source, /ERASE_TOOL/, 'manual editing must include a blank-cell eraser');
+assert.match(source, /MAX_HISTORY = 100/, 'manual editing must keep a bounded undo history');
+assert.match(source, /initializePaletteSelect/, 'all MARD colors must be available for manual editing');
+assert.match(source, /savePreferences|restorePreferences/, 'manual settings must survive refresh');
+assert.match(source, /loadOnnxRuntime/, 'the AI runtime must be loaded lazily');
+assert.doesNotMatch(html, /<script[^>]+ort\.min\.js/, 'ONNX runtime must not block the initial page load');
 
 console.log('pattern logic tests passed');

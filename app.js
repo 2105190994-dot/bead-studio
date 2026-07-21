@@ -25,6 +25,7 @@ const els = {
   fileInput: document.querySelector('#fileInput'), uploadZone: document.querySelector('#uploadZone'),
   fileRow: document.querySelector('#fileRow'), fileThumb: document.querySelector('#fileThumb'),
   fileName: document.querySelector('#fileName'), fileMeta: document.querySelector('#fileMeta'),
+  imageNotice: document.querySelector('#imageNotice'),
   replaceButton: document.querySelector('#replaceButton'), demoButton: document.querySelector('#demoButton'),
   emptyUploadButton: document.querySelector('#emptyUploadButton'), gridRange: document.querySelector('#gridRange'),
   gridNumber: document.querySelector('#gridNumber'), gridMinus: document.querySelector('#gridMinus'),
@@ -40,6 +41,8 @@ const els = {
   zoomOut: document.querySelector('#zoomOut'), zoomIn: document.querySelector('#zoomIn'),
   zoomLabel: document.querySelector('#zoomLabel'), fitButton: document.querySelector('#fitButton'),
   resultSection: document.querySelector('#resultSection'), legendGrid: document.querySelector('#legendGrid'),
+  paletteSelect: document.querySelector('#paletteSelect'), manualColorPreview: document.querySelector('#manualColorPreview'),
+  undoButton: document.querySelector('#undoButton'), redoButton: document.querySelector('#redoButton'),
   totalBeads: document.querySelector('#totalBeads'), totalColors: document.querySelector('#totalColors'),
   boardCount: document.querySelector('#boardCount'), downloadButton: document.querySelector('#downloadButton'),
   printButton: document.querySelector('#printButton')
@@ -49,10 +52,13 @@ const state = {
   image: null, fileName: '', cols: 96, rows: 96, colors: 16, cells: [], selectedColor: null,
   view: 'codes', zoom: 1, generated: false, compositionMode: 'all',
   templateMode: 'auto', detectedTemplate: 'lineart', detectionMetrics: null,
-  autoConfigured: false, gridCustomized: false, colorsCustomized: false
+  autoConfigured: false, gridCustomized: false, colorsCustomized: false,
+  objectUrl: '', history: [], redoStack: []
 };
 
 const ERASE_TOOL = { code: '__erase__', name: '空白格' };
+const PREFERENCES_KEY = 'bead-studio-preferences-v1';
+const MAX_HISTORY = 100;
 
 const patternCtx = els.patternCanvas.getContext('2d');
 const sourceCtx = els.sourceCanvas.getContext('2d', { willReadFrequently: true });
@@ -94,6 +100,46 @@ function setRangeFill(input) {
   input.style.setProperty('--fill', `${ratio}%`);
 }
 
+function savePreferences() {
+  try {
+    localStorage.setItem(PREFERENCES_KEY, JSON.stringify({
+      cols: state.cols,
+      colors: state.colors,
+      templateMode: state.templateMode,
+      compositionMode: state.compositionMode,
+      gridCustomized: state.gridCustomized,
+      colorsCustomized: state.colorsCustomized
+    }));
+  } catch (_) { /* Private browsing can disable storage. */ }
+}
+
+function restorePreferences() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PREFERENCES_KEY) || 'null');
+    if (!saved) return;
+    state.gridCustomized = Boolean(saved.gridCustomized);
+    state.colorsCustomized = Boolean(saved.colorsCustomized);
+    if (state.gridCustomized) setGrid(saved.cols, false);
+    if (state.colorsCustomized) setColorCount(saved.colors);
+    if (['auto', 'lineart', 'gradient'].includes(saved.templateMode)) state.templateMode = saved.templateMode;
+    if (['all', 'subject'].includes(saved.compositionMode)) state.compositionMode = saved.compositionMode;
+    els.templateModes.forEach(input => { input.checked = input.value === state.templateMode; });
+    els.compositionModes.forEach(input => { input.checked = input.value === state.compositionMode; });
+  } catch (_) { /* Ignore corrupt or unavailable storage. */ }
+}
+
+function updateImageNotice(file, image, element) {
+  if (!element) return;
+  const megapixels = image.naturalWidth * image.naturalHeight / 1e6;
+  const warnings = [];
+  if (file.size > 15 * 1024 * 1024) warnings.push(`文件 ${(file.size / 1048576).toFixed(1)} MB`);
+  if (megapixels > 20) warnings.push(`${megapixels.toFixed(0)} MP`);
+  element.hidden = warnings.length === 0;
+  element.textContent = warnings.length
+    ? `${warnings.join('、')}，手机处理可能较慢。图纸最多保留 200 格细节，建议使用较小副本。`
+    : '';
+}
+
 function setGrid(value, regenerate = true) {
   state.cols = Math.max(24, Math.min(200, Number(value) || 96));
   els.gridRange.value = state.cols;
@@ -121,28 +167,31 @@ function scheduleGenerate() {
 
 function loadFile(file) {
   if (!file || !file.type.startsWith('image/')) return;
-  const reader = new FileReader();
-  reader.onload = event => {
-    const image = new Image();
-    image.onload = () => {
-      state.image = image;
-      state.fileName = file.name;
-      els.fileThumb.src = event.target.result;
-      els.fileName.textContent = file.name;
-      els.fileMeta.textContent = `${image.naturalWidth} × ${image.naturalHeight}`;
-      els.uploadZone.hidden = true;
-      els.fileRow.hidden = false;
-      state.autoConfigured = false;
-      state.gridCustomized = false;
-      state.colorsCustomized = false;
-      state.detectionMetrics = null;
-      els.templateDetection.textContent = '正在分析图片结构…';
-      setGrid(64, false);
-      generatePattern();
-    };
-    image.src = event.target.result;
+  const objectUrl = URL.createObjectURL(file);
+  const image = new Image();
+  image.onload = () => {
+    if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
+    state.objectUrl = objectUrl;
+    state.image = image;
+    state.fileName = file.name;
+    els.fileThumb.src = objectUrl;
+    els.fileName.textContent = file.name;
+    els.fileMeta.textContent = `${image.naturalWidth} × ${image.naturalHeight} · ${(file.size / 1048576).toFixed(1)} MB`;
+    updateImageNotice(file, image, els.imageNotice);
+    els.uploadZone.hidden = true;
+    els.fileRow.hidden = false;
+    state.autoConfigured = false;
+    state.detectionMetrics = null;
+    els.templateDetection.textContent = '正在分析图片结构…';
+    if (!state.gridCustomized) setGrid(64, false);
+    generatePattern();
   };
-  reader.readAsDataURL(file);
+  image.onerror = () => {
+    URL.revokeObjectURL(objectUrl);
+    els.imageNotice.hidden = false;
+    els.imageNotice.textContent = '这张图片无法读取，请改用 JPG、PNG 或 WebP 格式。';
+  };
+  image.src = objectUrl;
 }
 
 function autoGridSize(width, height) {
@@ -171,8 +220,9 @@ function createDemo() {
     els.fileThumb.src = canvas.toDataURL('image/png');
     els.fileName.textContent = state.fileName; els.fileMeta.textContent = '720 × 640';
     els.uploadZone.hidden = true; els.fileRow.hidden = false;
-    state.autoConfigured = false; state.gridCustomized = false; state.colorsCustomized = false;
-    setGrid(64, false); generatePattern();
+    state.autoConfigured = false; state.detectionMetrics = null;
+    if (!state.gridCustomized) setGrid(64, false);
+    generatePattern();
   };
   image.src = canvas.toDataURL('image/png');
 }
@@ -722,6 +772,8 @@ function generatePattern() {
     updateTemplateDetection();
     state.cells = composePattern(pixels, template);
     state.generated = true; state.selectedColor = null;
+    resetEditHistory();
+    updateManualSelection();
     els.emptyState.hidden = true; els.canvasWrap.hidden = false; els.resultSection.hidden = false;
     renderPattern(); renderLegend(); updateStats(); fitCanvas();
     els.processing.hidden = true;
@@ -797,6 +849,64 @@ function countsByColor() {
   return [...counts.entries()].map(([code, count]) => ({ color: PALETTE_BY_CODE.get(code), count })).sort((a, b) => b.count - a.count);
 }
 
+function initializePaletteSelect() {
+  const groups = Object.keys(MARD_221_SERIES).map(series => {
+    const options = PALETTE.filter(color => color.code.startsWith(series))
+      .map(color => `<option value="${color.code}">${color.code} · ${MARD_SERIES_NAMES[series]}</option>`)
+      .join('');
+    return `<optgroup label="${series} 系 · ${MARD_SERIES_NAMES[series]}">${options}</optgroup>`;
+  }).join('');
+  els.paletteSelect.innerHTML = `<option value="">选择全部 221 色中的一个…</option>${groups}`;
+}
+
+function updateManualSelection() {
+  const color = state.selectedColor;
+  if (!color || color.code === ERASE_TOOL.code) {
+    els.paletteSelect.value = '';
+    els.manualColorPreview.textContent = color ? '×' : '--';
+    els.manualColorPreview.style.background = color ? '#eee9e3' : '#8b847c';
+    els.manualColorPreview.style.color = '#615b55';
+    return;
+  }
+  els.paletteSelect.value = color.code;
+  els.manualColorPreview.textContent = color.code;
+  els.manualColorPreview.style.background = color.hex;
+  els.manualColorPreview.style.color = luminance(color.rgb) > 145 ? '#35322f' : '#fff';
+}
+
+function updateHistoryControls() {
+  els.undoButton.disabled = state.history.length === 0;
+  els.redoButton.disabled = state.redoStack.length === 0;
+}
+
+function resetEditHistory() {
+  state.history = [];
+  state.redoStack = [];
+  updateHistoryControls();
+}
+
+function applyCellEdit(index, color) {
+  state.cells[index] = color;
+  renderPattern();
+  renderLegend();
+  updateStats();
+  updateHistoryControls();
+}
+
+function undoEdit() {
+  const entry = state.history.pop();
+  if (!entry) return;
+  state.redoStack.push(entry);
+  applyCellEdit(entry.index, entry.before ? PALETTE_BY_CODE.get(entry.before) : null);
+}
+
+function redoEdit() {
+  const entry = state.redoStack.pop();
+  if (!entry) return;
+  state.history.push(entry);
+  applyCellEdit(entry.index, entry.after ? PALETTE_BY_CODE.get(entry.after) : null);
+}
+
 function renderLegend() {
   const counts = countsByColor();
   const eraserSelected = state.selectedColor?.code === ERASE_TOOL.code;
@@ -812,6 +922,7 @@ function renderLegend() {
   }).join('');
   els.legendGrid.querySelectorAll('.legend-card').forEach(card => card.addEventListener('click', () => {
     state.selectedColor = card.dataset.code === ERASE_TOOL.code ? ERASE_TOOL : PALETTE_BY_CODE.get(card.dataset.code);
+    updateManualSelection();
     renderLegend();
   }));
 }
@@ -861,8 +972,15 @@ function editCell(event) {
   const y = (event.clientY - rect.top) / rect.height * metrics.height - metrics.margin;
   const col = Math.floor(x / metrics.cell), row = Math.floor(y / metrics.cell);
   if (col < 0 || row < 0 || col >= state.cols || row >= state.rows) return;
-  state.cells[row * state.cols + col] = state.selectedColor.code === ERASE_TOOL.code ? null : state.selectedColor;
-  renderPattern(); renderLegend(); updateStats();
+  const index = row * state.cols + col;
+  const next = state.selectedColor.code === ERASE_TOOL.code ? null : state.selectedColor;
+  const beforeCode = state.cells[index]?.code || null;
+  const afterCode = next?.code || null;
+  if (beforeCode === afterCode) return;
+  state.history.push({ index, before: beforeCode, after: afterCode });
+  if (state.history.length > MAX_HISTORY) state.history.shift();
+  state.redoStack = [];
+  applyCellEdit(index, next);
 }
 
 els.fileInput.addEventListener('change', event => loadFile(event.target.files[0]));
@@ -872,23 +990,26 @@ els.demoButton.addEventListener('click', createDemo);
 ['dragenter', 'dragover'].forEach(type => els.uploadZone.addEventListener(type, event => { event.preventDefault(); els.uploadZone.classList.add('dragging'); }));
 ['dragleave', 'drop'].forEach(type => els.uploadZone.addEventListener(type, event => { event.preventDefault(); els.uploadZone.classList.remove('dragging'); }));
 els.uploadZone.addEventListener('drop', event => loadFile(event.dataTransfer.files[0]));
-els.gridRange.addEventListener('input', event => { state.gridCustomized = true; setGrid(event.target.value); });
-els.gridNumber.addEventListener('change', event => { state.gridCustomized = true; setGrid(event.target.value); });
-els.gridMinus.addEventListener('click', () => { state.gridCustomized = true; setGrid(state.cols - 1); });
-els.gridPlus.addEventListener('click', () => { state.gridCustomized = true; setGrid(state.cols + 1); });
+els.gridRange.addEventListener('input', event => { state.gridCustomized = true; setGrid(event.target.value); savePreferences(); });
+els.gridNumber.addEventListener('change', event => { state.gridCustomized = true; setGrid(event.target.value); savePreferences(); });
+els.gridMinus.addEventListener('click', () => { state.gridCustomized = true; setGrid(state.cols - 1); savePreferences(); });
+els.gridPlus.addEventListener('click', () => { state.gridCustomized = true; setGrid(state.cols + 1); savePreferences(); });
 document.querySelectorAll('[data-preset]').forEach(button => button.addEventListener('click', () => {
   state.gridCustomized = true;
   const target = button.dataset.preset === 'detail' ? columnsForLongSide(200) : { simple: 48, balanced: 96 }[button.dataset.preset];
   setGrid(target);
+  savePreferences();
 }));
 els.colorRange.addEventListener('input', event => {
   state.colorsCustomized = true;
   setColorCount(event.target.value);
+  savePreferences();
   if (state.image) scheduleGenerate();
 });
 els.templateModes.forEach(input => input.addEventListener('change', event => {
   if (!event.target.checked) return;
   state.templateMode = event.target.value;
+  savePreferences();
   if (state.image) {
     const defaults = recommendedTemplateSettings(effectiveTemplate());
     if (!state.gridCustomized) setGrid(defaults.cols, false);
@@ -901,6 +1022,7 @@ els.templateModes.forEach(input => input.addEventListener('change', event => {
 els.compositionModes.forEach(input => input.addEventListener('change', event => {
   if (!event.target.checked) return;
   state.compositionMode = event.target.value;
+  savePreferences();
   if (state.image) scheduleGenerate();
 }));
 els.generateButton.addEventListener('click', generatePattern);
@@ -913,11 +1035,26 @@ document.querySelectorAll('[data-view]').forEach(button => button.addEventListen
   renderPattern(); fitCanvas();
 }));
 els.patternCanvas.addEventListener('click', editCell);
+els.paletteSelect.addEventListener('change', event => {
+  state.selectedColor = PALETTE_BY_CODE.get(event.target.value) || null;
+  updateManualSelection();
+  renderLegend();
+});
+els.undoButton.addEventListener('click', undoEdit);
+els.redoButton.addEventListener('click', redoEdit);
+window.addEventListener('keydown', event => {
+  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+  event.preventDefault();
+  event.shiftKey ? redoEdit() : undoEdit();
+});
 els.downloadButton.addEventListener('click', exportPng);
 els.printButton.addEventListener('click', () => state.generated ? window.print() : els.fileInput.click());
 window.addEventListener('resize', () => state.generated && fitCanvas());
 
-setRangeFill(els.gridRange); setRangeFill(els.colorRange); updateEstimatedSize();
+initializePaletteSelect();
+restorePreferences();
+setRangeFill(els.gridRange); setRangeFill(els.colorRange); updateEstimatedSize(); updateHistoryControls();
 
 // --- Legacy pixel-filter workspace kept only for reference; the live UI now uses local neural inference. ---
 if (false) {
@@ -1157,6 +1294,8 @@ applyCartoonPreset('soft', false);
 
 // --- Free local AI cartoon workspace (AnimeGANv2 + ONNX Runtime Web) ---
 const LOCAL_CARTOON_MODEL = 'models/Shinkai_53.onnx';
+const ONNX_RUNTIME_URL = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js';
+let onnxRuntimePromise;
 
 const aiCartoonEls = {
   beadMode: document.querySelector('#beadMode'), cartoonMode: document.querySelector('#cartoonMode'),
@@ -1164,6 +1303,7 @@ const aiCartoonEls = {
   fileInput: document.querySelector('#cartoonFileInput'), uploadZone: document.querySelector('#cartoonUploadZone'),
   fileRow: document.querySelector('#cartoonFileRow'), fileThumb: document.querySelector('#cartoonFileThumb'),
   fileName: document.querySelector('#cartoonFileName'), fileMeta: document.querySelector('#cartoonFileMeta'),
+  imageNotice: document.querySelector('#cartoonImageNotice'),
   replaceButton: document.querySelector('#cartoonReplaceButton'), emptyUpload: document.querySelector('#cartoonEmptyUpload'),
   empty: document.querySelector('#cartoonEmpty'), previewGrid: document.querySelector('#cartoonPreviewGrid'),
   originalCanvas: document.querySelector('#cartoonOriginalCanvas'), resultCanvas: document.querySelector('#cartoonResultCanvas'),
@@ -1177,7 +1317,7 @@ const aiCartoonEls = {
 
 const aiCartoonState = {
   image: null, fileName: '', maxSide: 512, session: null, sessionPromise: null,
-  running: false, generated: false
+  running: false, generated: false, objectUrl: ''
 };
 
 const aiOriginalCtx = aiCartoonEls.originalCanvas.getContext('2d', { willReadFrequently: true });
@@ -1236,30 +1376,52 @@ function drawOriginalPreview() {
 
 function loadAiCartoonFile(file) {
   if (!file || !file.type.startsWith('image/')) return;
-  const reader = new FileReader();
-  reader.onload = event => {
-    const image = new Image();
-    image.onload = () => {
-      aiCartoonState.image = image;
-      aiCartoonState.fileName = file.name;
-      aiCartoonState.generated = false;
-      aiCartoonEls.fileThumb.src = event.target.result;
-      aiCartoonEls.fileName.textContent = file.name;
-      aiCartoonEls.fileMeta.textContent = `${image.naturalWidth} × ${image.naturalHeight}`;
-      aiCartoonEls.imageSize.textContent = `${image.naturalWidth} × ${image.naturalHeight}`;
-      aiCartoonEls.uploadZone.hidden = true;
-      aiCartoonEls.fileRow.hidden = false;
-      aiCartoonEls.empty.hidden = true;
-      aiCartoonEls.previewGrid.hidden = false;
-      aiCartoonEls.resultWaiting.hidden = false;
-      aiCartoonEls.run.disabled = false;
-      setAiActionsReady(false);
-      drawOriginalPreview();
-      setAiStatus('ready', '照片已准备好', '点击上方按钮，让本地 AI 重新绘制');
-    };
-    image.src = event.target.result;
+  const objectUrl = URL.createObjectURL(file);
+  const image = new Image();
+  image.onload = () => {
+    if (aiCartoonState.objectUrl) URL.revokeObjectURL(aiCartoonState.objectUrl);
+    aiCartoonState.objectUrl = objectUrl;
+    aiCartoonState.image = image;
+    aiCartoonState.fileName = file.name;
+    aiCartoonState.generated = false;
+    aiCartoonEls.fileThumb.src = objectUrl;
+    aiCartoonEls.fileName.textContent = file.name;
+    aiCartoonEls.fileMeta.textContent = `${image.naturalWidth} × ${image.naturalHeight} · ${(file.size / 1048576).toFixed(1)} MB`;
+    updateImageNotice(file, image, aiCartoonEls.imageNotice);
+    aiCartoonEls.imageSize.textContent = `${image.naturalWidth} × ${image.naturalHeight}`;
+    aiCartoonEls.uploadZone.hidden = true;
+    aiCartoonEls.fileRow.hidden = false;
+    aiCartoonEls.empty.hidden = true;
+    aiCartoonEls.previewGrid.hidden = false;
+    aiCartoonEls.resultWaiting.hidden = false;
+    aiCartoonEls.run.disabled = false;
+    setAiActionsReady(false);
+    drawOriginalPreview();
+    setAiStatus('ready', '照片已准备好', '点击上方按钮，让本地 AI 重新绘制');
   };
-  reader.readAsDataURL(file);
+  image.onerror = () => {
+    URL.revokeObjectURL(objectUrl);
+    aiCartoonEls.imageNotice.hidden = false;
+    aiCartoonEls.imageNotice.textContent = '这张图片无法读取，请改用 JPG、PNG 或 WebP 格式。';
+  };
+  image.src = objectUrl;
+}
+
+function loadOnnxRuntime() {
+  if (window.ort) return Promise.resolve(window.ort);
+  if (onnxRuntimePromise) return onnxRuntimePromise;
+  onnxRuntimePromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = ONNX_RUNTIME_URL;
+    script.async = true;
+    script.onload = () => window.ort ? resolve(window.ort) : reject(new Error('AI 运行组件初始化失败'));
+    script.onerror = () => reject(new Error('AI 运行组件下载失败，请检查网络后重试'));
+    document.head.appendChild(script);
+  }).catch(error => {
+    onnxRuntimePromise = null;
+    throw error;
+  });
+  return onnxRuntimePromise;
 }
 
 async function fetchModelWithProgress() {
@@ -1288,7 +1450,8 @@ async function ensureLocalCartoonModel() {
   if (aiCartoonState.session) return aiCartoonState.session;
   if (aiCartoonState.sessionPromise) return aiCartoonState.sessionPromise;
   aiCartoonState.sessionPromise = (async () => {
-    if (!window.ort) throw new Error('本地 AI 运行组件没有加载成功，请刷新页面重试');
+    setAiStatus('loading', '正在加载 AI 运行组件', '只在使用漫画功能时下载');
+    await loadOnnxRuntime();
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.simd = true;
     ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';

@@ -8,7 +8,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <script>
-    window.BEAD_STUDIO_VERSION = '9';
+    window.BEAD_STUDIO_VERSION = '10';
     (async () => {
       try {
         const response = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
@@ -27,7 +27,7 @@
     })();
   </script>
   <title>豆格工坊 · 图片转拼豆图纸</title>
-  <link rel="stylesheet" href="styles.css?v=9" />
+  <link rel="stylesheet" href="styles.css?v=10" />
 </head>
 <body>
   <div class="noise" aria-hidden="true"></div>
@@ -113,6 +113,7 @@
           <input class="range mint-range" id="colorRange" type="range" min="4" max="60" step="1" value="16" />
           <div class="range-hints"><span>更好备料</span><span>更接近原图</span></div>
         </div>
+        <p class="image-notice" id="imageNotice" role="status" hidden></p>
 
         <fieldset class="template-picker">
           <legend>图纸模板</legend>
@@ -198,6 +199,21 @@
           <div><span id="boardCount">1</span><small>29×29 底板</small></div>
         </div>
       </div>
+      <div class="manual-tools" aria-label="手动改图工具">
+        <div>
+          <span class="manual-tools-kicker">MANUAL EDIT</span>
+          <b>指定任意 MARD 色号改单格</b>
+          <small>选好颜色后，直接点图纸中的格子</small>
+        </div>
+        <label class="palette-select-wrap" for="paletteSelect">
+          <span class="manual-color-preview" id="manualColorPreview">--</span>
+          <select id="paletteSelect" aria-label="选择 MARD 色号"></select>
+        </label>
+        <div class="history-controls">
+          <button id="undoButton" type="button" disabled aria-label="撤销上一次改单格">↶ 撤销</button>
+          <button id="redoButton" type="button" disabled aria-label="重做改单格">↷ 重做</button>
+        </div>
+      </div>
       <div class="legend-grid" id="legendGrid"></div>
       <div class="tip-card">
         <span>小提示</span>
@@ -235,6 +251,7 @@
             <div><strong id="cartoonFileName">原图.jpg</strong><span id="cartoonFileMeta">1200 × 1200</span></div>
             <button id="cartoonReplaceButton" type="button">更换</button>
           </div>
+          <p class="image-notice" id="cartoonImageNotice" role="status" hidden></p>
 
           <div class="divider"></div>
 
@@ -305,7 +322,6 @@
 
   <footer><span>豆格工坊 · 为每一颗小豆子找到位置</span><span>在本地运行，不上传你的图片</span></footer>
   <canvas id="sourceCanvas" hidden></canvas>
-  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>
