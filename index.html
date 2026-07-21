@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#ff6b6b" />
+  <title>豆格工坊 · 图片转拼豆图纸</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="noise" aria-hidden="true"></div>
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="豆格工坊首页">
+      <span class="brand-mark" aria-hidden="true">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </span>
+      <span>豆格工坊</span>
+      <em>BEAD STUDIO</em>
+    </a>
+    <div class="top-actions">
+      <span class="privacy"><i></i> 图片仅在你的浏览器中处理</span>
+      <button class="button ghost small" id="printButton" type="button">打印图纸</button>
+      <button class="button primary small" id="downloadButton" type="button">导出 PNG</button>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <section class="intro">
+      <div>
+        <p class="eyebrow">PIXEL TO PERLER</p>
+        <h1>把喜欢的图片，<br><span>变成一格一格的快乐。</span></h1>
+      </div>
+      <p class="intro-copy">自动匹配拼豆颜色、标注色号并计算用量。你可以随时调整格数，找到“够清楚”和“拼得完”之间的甜蜜点。</p>
+    </section>
+
+    <section class="workspace">
+      <aside class="control-panel">
+        <div class="panel-heading">
+          <span class="step-badge">01</span>
+          <div><h2>准备图片</h2><p>支持 JPG、PNG、WEBP</p></div>
+        </div>
+
+        <label class="upload-zone" id="uploadZone" for="fileInput">
+          <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" hidden />
+          <span class="upload-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <strong>拖入图片或点击上传</strong>
+          <small>推荐主体清晰、背景简洁的图片</small>
+        </label>
+        <div class="file-row" id="fileRow" hidden>
+          <img id="fileThumb" alt="已上传图片缩略图" />
+          <div><strong id="fileName">图片.jpg</strong><span id="fileMeta">1200 × 1200</span></div>
+          <button id="replaceButton" type="button">更换</button>
+        </div>
+        <button class="demo-link" id="demoButton" type="button"><span>✦</span> 没有图片？先试试示例</button>
+
+        <div class="divider"></div>
+
+        <div class="panel-heading compact">
+          <span class="step-badge mint">02</span>
+          <div><h2>调整难度</h2><p>格数越多，细节越丰富</p></div>
+        </div>
+
+        <div class="preset-group" role="group" aria-label="清晰度预设">
+          <button type="button" data-preset="simple"><b>简单</b><span>约 32 格</span></button>
+          <button type="button" class="active" data-preset="balanced"><b>推荐</b><span>约 48 格</span></button>
+          <button type="button" data-preset="detail"><b>精细</b><span>约 64 格</span></button>
+        </div>
+
+        <div class="setting-block">
+          <div class="setting-label">
+            <label for="gridRange">横向格数</label>
+            <div class="number-stepper"><button id="gridMinus" type="button" aria-label="减少格数">−</button><input id="gridNumber" type="number" min="12" max="100" value="48" /><button id="gridPlus" type="button" aria-label="增加格数">＋</button></div>
+          </div>
+          <input class="range coral" id="gridRange" type="range" min="12" max="100" value="48" />
+          <div class="range-hints"><span>更省豆</span><span>更清晰</span></div>
+        </div>
+
+        <div class="setting-block">
+          <div class="setting-label"><label for="colorRange">颜色数量</label><output id="colorOutput">16 色</output></div>
+          <input class="range mint-range" id="colorRange" type="range" min="4" max="32" step="1" value="16" />
+          <div class="range-hints"><span>更好备料</span><span>更接近原图</span></div>
+        </div>
+
+        <label class="toggle-row">
+          <span><b>忽略浅色背景</b><small>让接近白色的格子留空</small></span>
+          <input id="backgroundToggle" type="checkbox" checked /><i aria-hidden="true"></i>
+        </label>
+
+        <button class="button primary generate" id="generateButton" type="button">
+          <span>生成拼豆图纸</span><svg viewBox="0 0 20 20" fill="none"><path d="M4 10h12m-4-4 4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </aside>
+
+      <section class="preview-panel">
+        <div class="preview-toolbar">
+          <div>
+            <span class="live-dot"></span>
+            <h2>图纸预览</h2>
+            <span class="canvas-size" id="canvasSize">48 × 48 格</span>
+          </div>
+          <div class="zoom-controls">
+            <button id="zoomOut" type="button" aria-label="缩小">−</button>
+            <span id="zoomLabel">100%</span>
+            <button id="zoomIn" type="button" aria-label="放大">＋</button>
+            <button class="fit-button" id="fitButton" type="button">适应窗口</button>
+          </div>
+        </div>
+
+        <div class="canvas-stage" id="canvasStage">
+          <div class="empty-state" id="emptyState">
+            <div class="empty-art" aria-hidden="true">
+              <span class="bean b1"></span><span class="bean b2"></span><span class="bean b3"></span><span class="bean b4"></span><span class="bean b5"></span><span class="bean b6"></span><span class="bean b7"></span><span class="bean b8"></span><span class="bean b9"></span><span class="bean b10"></span><span class="bean b11"></span><span class="bean b12"></span><span class="bean b13"></span>
+            </div>
+            <h3>你的图纸会出现在这里</h3>
+            <p>上传一张图片，或使用示例快速体验</p>
+            <button type="button" id="emptyUploadButton">选择图片</button>
+          </div>
+          <div class="canvas-wrap" id="canvasWrap" hidden>
+            <canvas id="patternCanvas" aria-label="拼豆网格图纸"></canvas>
+          </div>
+          <div class="processing" id="processing" hidden><span></span><b>正在分拣颜色…</b></div>
+        </div>
+
+        <div class="preview-footer">
+          <p><span class="mouse-icon">⌁</span> 选择下方颜色后，点击格子可手动修正</p>
+          <div class="view-switch" role="group" aria-label="预览模式">
+            <button class="active" type="button" data-view="codes">色号</button>
+            <button type="button" data-view="clean">净图</button>
+            <button type="button" data-view="original">原图</button>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="result-section" id="resultSection" hidden>
+      <div class="result-heading">
+        <div><p class="eyebrow">MATERIAL LIST</p><h2>配色与用量</h2><p>点击色卡选中颜色，再到图纸中修正格子。</p></div>
+        <div class="stats">
+          <div><span id="totalBeads">0</span><small>豆子总数</small></div>
+          <div><span id="totalColors">0</span><small>使用颜色</small></div>
+          <div><span id="boardCount">1</span><small>29×29 底板</small></div>
+        </div>
+      </div>
+      <div class="legend-grid" id="legendGrid"></div>
+      <div class="tip-card">
+        <span>小提示</span>
+        <p>实际豆子颜色会因品牌和屏幕显示略有差异，建议先用少量豆子对色。购买时每种颜色多准备约 5%，会更从容。</p>
+      </div>
+    </section>
+  </main>
+
+  <footer><span>豆格工坊 · 为每一颗小豆子找到位置</span><span>在本地运行，不上传你的图片</span></footer>
+  <canvas id="sourceCanvas" hidden></canvas>
+  <script src="app.js"></script>
+</body>
+</html>
