@@ -358,7 +358,8 @@ window.addEventListener('resize', () => state.generated && fitCanvas());
 
 setRangeFill(els.gridRange); setRangeFill(els.colorRange); updateEstimatedSize();
 
-// --- Photo-to-comic preprocessing workspace ---
+// --- Legacy pixel-filter workspace kept only for reference; the live UI now uses local neural inference. ---
+if (false) {
 const cartoonEls = {
   beadMode: document.querySelector('#beadMode'), cartoonMode: document.querySelector('#cartoonMode'),
   beadTopActions: document.querySelector('#beadTopActions'), cartoonTopActions: document.querySelector('#cartoonTopActions'),
@@ -591,3 +592,277 @@ cartoonEls.download.addEventListener('click', downloadCartoon);
 cartoonEls.topDownload.addEventListener('click', downloadCartoon);
 cartoonEls.sendToBead.addEventListener('click', sendCartoonToBead);
 applyCartoonPreset('soft', false);
+}
+
+// --- Free local AI cartoon workspace (AnimeGANv2 + ONNX Runtime Web) ---
+const LOCAL_CARTOON_MODEL = 'models/Shinkai_53.onnx';
+
+const aiCartoonEls = {
+  beadMode: document.querySelector('#beadMode'), cartoonMode: document.querySelector('#cartoonMode'),
+  beadTopActions: document.querySelector('#beadTopActions'), cartoonTopActions: document.querySelector('#cartoonTopActions'),
+  fileInput: document.querySelector('#cartoonFileInput'), uploadZone: document.querySelector('#cartoonUploadZone'),
+  fileRow: document.querySelector('#cartoonFileRow'), fileThumb: document.querySelector('#cartoonFileThumb'),
+  fileName: document.querySelector('#cartoonFileName'), fileMeta: document.querySelector('#cartoonFileMeta'),
+  replaceButton: document.querySelector('#cartoonReplaceButton'), emptyUpload: document.querySelector('#cartoonEmptyUpload'),
+  empty: document.querySelector('#cartoonEmpty'), previewGrid: document.querySelector('#cartoonPreviewGrid'),
+  originalCanvas: document.querySelector('#cartoonOriginalCanvas'), resultCanvas: document.querySelector('#cartoonResultCanvas'),
+  resultWaiting: document.querySelector('#resultWaiting'), processing: document.querySelector('#cartoonProcessing'),
+  processingText: document.querySelector('#cartoonProcessingText'), imageSize: document.querySelector('#cartoonImageSize'),
+  run: document.querySelector('#runCartoonButton'), download: document.querySelector('#cartoonDownloadButton'),
+  topDownload: document.querySelector('#cartoonTopDownload'), sendToBead: document.querySelector('#sendToBeadButton'),
+  status: document.querySelector('#modelStatus'), statusTitle: document.querySelector('#modelStatusTitle'),
+  statusDetail: document.querySelector('#modelStatusDetail')
+};
+
+const aiCartoonState = {
+  image: null, fileName: '', maxSide: 512, session: null, sessionPromise: null,
+  running: false, generated: false
+};
+
+const aiOriginalCtx = aiCartoonEls.originalCanvas.getContext('2d', { willReadFrequently: true });
+const aiResultCtx = aiCartoonEls.resultCanvas.getContext('2d', { willReadFrequently: true });
+const aiInputCanvas = document.createElement('canvas');
+const aiInputCtx = aiInputCanvas.getContext('2d', { willReadFrequently: true });
+const aiOutputCanvas = document.createElement('canvas');
+const aiOutputCtx = aiOutputCanvas.getContext('2d');
+
+function switchWorkspaceMode(mode, scroll = true) {
+  const cartoon = mode === 'cartoon';
+  aiCartoonEls.beadMode.hidden = cartoon;
+  aiCartoonEls.cartoonMode.hidden = !cartoon;
+  aiCartoonEls.beadTopActions.hidden = cartoon;
+  aiCartoonEls.cartoonTopActions.hidden = !cartoon;
+  document.querySelectorAll('[data-mode]').forEach(button => button.classList.toggle('active', button.dataset.mode === mode));
+  if (scroll) window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function setAiStatus(kind, title, detail) {
+  aiCartoonEls.status.dataset.state = kind;
+  aiCartoonEls.statusTitle.textContent = title;
+  aiCartoonEls.statusDetail.textContent = detail;
+}
+
+function setAiActionsReady(ready) {
+  aiCartoonEls.download.disabled = !ready;
+  aiCartoonEls.topDownload.disabled = !ready;
+  aiCartoonEls.sendToBead.disabled = !ready;
+}
+
+function displayDimensions(image, maxSide = 1200) {
+  const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+  return {
+    width: Math.max(1, Math.round(image.naturalWidth * scale)),
+    height: Math.max(1, Math.round(image.naturalHeight * scale))
+  };
+}
+
+function inferenceDimensions(image, maxSide) {
+  const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+  const to32 = value => Math.max(256, Math.floor(value * scale / 32) * 32);
+  return { width: to32(image.naturalWidth), height: to32(image.naturalHeight) };
+}
+
+function drawOriginalPreview() {
+  const { width, height } = displayDimensions(aiCartoonState.image);
+  aiCartoonEls.originalCanvas.width = width;
+  aiCartoonEls.originalCanvas.height = height;
+  aiOriginalCtx.clearRect(0, 0, width, height);
+  aiOriginalCtx.drawImage(aiCartoonState.image, 0, 0, width, height);
+  aiCartoonEls.resultCanvas.width = width;
+  aiCartoonEls.resultCanvas.height = height;
+  aiResultCtx.clearRect(0, 0, width, height);
+}
+
+function loadAiCartoonFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = event => {
+    const image = new Image();
+    image.onload = () => {
+      aiCartoonState.image = image;
+      aiCartoonState.fileName = file.name;
+      aiCartoonState.generated = false;
+      aiCartoonEls.fileThumb.src = event.target.result;
+      aiCartoonEls.fileName.textContent = file.name;
+      aiCartoonEls.fileMeta.textContent = `${image.naturalWidth} × ${image.naturalHeight}`;
+      aiCartoonEls.imageSize.textContent = `${image.naturalWidth} × ${image.naturalHeight}`;
+      aiCartoonEls.uploadZone.hidden = true;
+      aiCartoonEls.fileRow.hidden = false;
+      aiCartoonEls.empty.hidden = true;
+      aiCartoonEls.previewGrid.hidden = false;
+      aiCartoonEls.resultWaiting.hidden = false;
+      aiCartoonEls.run.disabled = false;
+      setAiActionsReady(false);
+      drawOriginalPreview();
+      setAiStatus('ready', '照片已准备好', '点击上方按钮，让本地 AI 重新绘制');
+    };
+    image.src = event.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function fetchModelWithProgress() {
+  const response = await fetch(LOCAL_CARTOON_MODEL);
+  if (!response.ok) throw new Error(`模型文件加载失败（${response.status}）`);
+  const total = Number(response.headers.get('content-length')) || 0;
+  if (!response.body?.getReader) return new Uint8Array(await response.arrayBuffer());
+  const reader = response.body.getReader();
+  const chunks = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    const progress = total ? `${Math.round(received / total * 100)}%` : `${(received / 1048576).toFixed(1)} MB`;
+    setAiStatus('loading', '正在加载免费模型', `${progress} · 首次加载后浏览器会缓存`);
+  }
+  const bytes = new Uint8Array(received);
+  let offset = 0;
+  chunks.forEach(chunk => { bytes.set(chunk, offset); offset += chunk.length; });
+  return bytes;
+}
+
+async function ensureLocalCartoonModel() {
+  if (aiCartoonState.session) return aiCartoonState.session;
+  if (aiCartoonState.sessionPromise) return aiCartoonState.sessionPromise;
+  aiCartoonState.sessionPromise = (async () => {
+    if (!window.ort) throw new Error('本地 AI 运行组件没有加载成功，请刷新页面重试');
+    ort.env.wasm.numThreads = 1;
+    ort.env.wasm.simd = true;
+    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
+    const modelBytes = await fetchModelWithProgress();
+    setAiStatus('loading', '正在启动漫画模型', '第一次启动会比之后稍慢');
+    aiCartoonState.session = await ort.InferenceSession.create(modelBytes, {
+      executionProviders: ['wasm'], graphOptimizationLevel: 'all'
+    });
+    return aiCartoonState.session;
+  })();
+  try {
+    return await aiCartoonState.sessionPromise;
+  } catch (error) {
+    aiCartoonState.sessionPromise = null;
+    throw error;
+  }
+}
+
+function createModelInput(image, width, height) {
+  aiInputCanvas.width = width;
+  aiInputCanvas.height = height;
+  aiInputCtx.imageSmoothingEnabled = true;
+  aiInputCtx.imageSmoothingQuality = 'high';
+  aiInputCtx.drawImage(image, 0, 0, width, height);
+  const rgba = aiInputCtx.getImageData(0, 0, width, height).data;
+  const rgb = new Float32Array(width * height * 3);
+  for (let source = 0, target = 0; source < rgba.length; source += 4) {
+    rgb[target++] = rgba[source] / 127.5 - 1;
+    rgb[target++] = rgba[source + 1] / 127.5 - 1;
+    rgb[target++] = rgba[source + 2] / 127.5 - 1;
+  }
+  return new ort.Tensor('float32', rgb, [1, height, width, 3]);
+}
+
+function paintModelOutput(tensor, width, height) {
+  const pixels = tensor.data;
+  const imageData = aiOutputCtx.createImageData(width, height);
+  for (let source = 0, target = 0; source < pixels.length; source += 3) {
+    imageData.data[target++] = Math.max(0, Math.min(255, (pixels[source] + 1) * 127.5));
+    imageData.data[target++] = Math.max(0, Math.min(255, (pixels[source + 1] + 1) * 127.5));
+    imageData.data[target++] = Math.max(0, Math.min(255, (pixels[source + 2] + 1) * 127.5));
+    imageData.data[target++] = 255;
+  }
+  aiOutputCtx.putImageData(imageData, 0, 0);
+  const display = displayDimensions(aiCartoonState.image);
+  aiCartoonEls.resultCanvas.width = display.width;
+  aiCartoonEls.resultCanvas.height = display.height;
+  aiResultCtx.imageSmoothingEnabled = true;
+  aiResultCtx.imageSmoothingQuality = 'high';
+  aiResultCtx.drawImage(aiOutputCanvas, 0, 0, display.width, display.height);
+}
+
+async function runLocalCartoonModel() {
+  if (!aiCartoonState.image) { aiCartoonEls.fileInput.click(); return; }
+  if (aiCartoonState.running) return;
+  aiCartoonState.running = true;
+  aiCartoonEls.run.disabled = true;
+  aiCartoonEls.processing.hidden = false;
+  aiCartoonEls.processingText.textContent = '正在加载本地漫画模型…';
+  setAiActionsReady(false);
+  try {
+    const session = await ensureLocalCartoonModel();
+    const { width, height } = inferenceDimensions(aiCartoonState.image, aiCartoonState.maxSide);
+    aiInputCanvas.width = width; aiInputCanvas.height = height;
+    aiOutputCanvas.width = width; aiOutputCanvas.height = height;
+    aiCartoonEls.processingText.textContent = `正在重新绘制 ${width} × ${height} 个像素…`;
+    setAiStatus('running', 'AI 正在重新绘制', '请保持页面打开，手机可能需要几十秒');
+    await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 30)));
+    const inputTensor = createModelInput(aiCartoonState.image, width, height);
+    const feeds = { [session.inputNames[0]]: inputTensor };
+    const results = await session.run(feeds);
+    paintModelOutput(results[session.outputNames[0]], width, height);
+    aiCartoonState.generated = true;
+    aiCartoonEls.resultWaiting.hidden = true;
+    setAiActionsReady(true);
+    setAiStatus('done', '漫画图完成', `${width} × ${height} 本地 AI 推理 · 照片未上传`);
+  } catch (error) {
+    console.error(error);
+    setAiStatus('error', '这次转换没有完成', error.message || '请刷新页面后重试');
+  } finally {
+    aiCartoonEls.processing.hidden = true;
+    aiCartoonState.running = false;
+    aiCartoonEls.run.disabled = false;
+  }
+}
+
+function downloadAiCartoon() {
+  if (!aiCartoonState.generated) { runLocalCartoonModel(); return; }
+  aiCartoonEls.resultCanvas.toBlob(blob => {
+    const link = document.createElement('a');
+    const base = (aiCartoonState.fileName || '照片').replace(/\.[^.]+$/, '');
+    link.download = `${base}-AI清线动画.png`;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  }, 'image/png');
+}
+
+function sendAiCartoonToBead() {
+  if (!aiCartoonState.generated) { runLocalCartoonModel(); return; }
+  const dataUrl = aiCartoonEls.resultCanvas.toDataURL('image/png');
+  const image = new Image();
+  image.onload = () => {
+    state.image = image;
+    state.fileName = `${(aiCartoonState.fileName || '照片').replace(/\.[^.]+$/, '')}-AI漫画.png`;
+    els.fileThumb.src = dataUrl;
+    els.fileName.textContent = state.fileName;
+    els.fileMeta.textContent = `${image.naturalWidth} × ${image.naturalHeight}`;
+    els.uploadZone.hidden = true; els.fileRow.hidden = false;
+    setGrid(autoGridSize(image.naturalWidth, image.naturalHeight), false);
+    switchWorkspaceMode('bead', false);
+    generatePattern();
+    setTimeout(() => document.querySelector('.workspace').scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+  };
+  image.src = dataUrl;
+}
+
+document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => switchWorkspaceMode(button.dataset.mode)));
+document.querySelectorAll('[data-cartoon-view]').forEach(button => button.addEventListener('click', () => {
+  document.querySelectorAll('[data-cartoon-view]').forEach(item => item.classList.toggle('active', item === button));
+  aiCartoonEls.previewGrid.classList.toggle('single', button.dataset.cartoonView === 'result');
+}));
+document.querySelectorAll('[data-ai-size]').forEach(button => button.addEventListener('click', () => {
+  aiCartoonState.maxSide = Number(button.dataset.aiSize);
+  document.querySelectorAll('[data-ai-size]').forEach(item => item.classList.toggle('active', item === button));
+  if (aiCartoonState.image) setAiStatus('ready', '处理尺寸已调整', `将以最长边 ${aiCartoonState.maxSide} 像素重新绘制`);
+}));
+aiCartoonEls.fileInput.addEventListener('change', event => loadAiCartoonFile(event.target.files[0]));
+aiCartoonEls.replaceButton.addEventListener('click', () => aiCartoonEls.fileInput.click());
+aiCartoonEls.emptyUpload.addEventListener('click', () => aiCartoonEls.fileInput.click());
+['dragenter', 'dragover'].forEach(type => aiCartoonEls.uploadZone.addEventListener(type, event => { event.preventDefault(); aiCartoonEls.uploadZone.classList.add('dragging'); }));
+['dragleave', 'drop'].forEach(type => aiCartoonEls.uploadZone.addEventListener(type, event => { event.preventDefault(); aiCartoonEls.uploadZone.classList.remove('dragging'); }));
+aiCartoonEls.uploadZone.addEventListener('drop', event => loadAiCartoonFile(event.dataTransfer.files[0]));
+aiCartoonEls.run.addEventListener('click', runLocalCartoonModel);
+aiCartoonEls.download.addEventListener('click', downloadAiCartoon);
+aiCartoonEls.topDownload.addEventListener('click', downloadAiCartoon);
+aiCartoonEls.sendToBead.addEventListener('click', sendAiCartoonToBead);
+setAiActionsReady(false);

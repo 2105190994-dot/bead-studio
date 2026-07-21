@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#ff6b6b" />
   <title>豆格工坊 · 图片转拼豆图纸</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=3" />
 </head>
 <body>
   <div class="noise" aria-hidden="true"></div>
@@ -19,7 +19,7 @@
     </a>
     <nav class="mode-nav" aria-label="工作区切换">
       <button class="active" type="button" data-mode="bead"><span>▦</span> 拼豆图纸</button>
-      <button type="button" data-mode="cartoon"><span>✦</span> 漫画预处理 <em>NEW</em></button>
+      <button type="button" data-mode="cartoon"><span>✦</span> 免费 AI 漫画 <em>NEW</em></button>
     </nav>
     <div class="top-actions" id="beadTopActions">
       <span class="privacy"><i></i> 图片仅在你的浏览器中处理</span>
@@ -27,7 +27,7 @@
       <button class="button primary small" id="downloadButton" type="button">导出 PNG</button>
     </div>
     <div class="top-actions" id="cartoonTopActions" hidden>
-      <span class="privacy"><i></i> 本地处理，不上传原图</span>
+      <span class="privacy"><i></i> AI 在浏览器本地运行，不上传原图</span>
       <button class="button primary small" id="cartoonTopDownload" type="button">保存漫画图</button>
     </div>
   </header>
@@ -163,10 +163,10 @@
     <div class="mode-page cartoon-page" id="cartoonMode" hidden>
       <section class="intro cartoon-intro">
         <div>
-          <p class="eyebrow">PHOTO TO COMIC</p>
-          <h1>先减掉照片的噪音，<br><span>再留下漫画的神韵。</span></h1>
+          <p class="eyebrow">LOCAL AI · PHOTO TO COMIC</p>
+          <h1>不是换个滤镜，<br><span>让模型真的重新画一遍。</span></h1>
         </div>
-        <p class="intro-copy">平滑实拍细节、合并相近颜色，再用清晰轮廓抓住人物和主体。处理后的图片更适合继续转成拼豆图纸。</p>
+        <p class="intro-copy">使用免费的开源漫画模型重新组织线条、色块和光影。模型在你的设备里运行，不上传照片，也没有按张 API 费用。</p>
       </section>
 
       <section class="cartoon-workspace">
@@ -194,50 +194,26 @@
 
           <div class="panel-heading compact">
             <span class="step-badge mint">02</span>
-            <div><h2>选择漫画感觉</h2><p>预设后还能继续微调</p></div>
+            <div><h2>运行本地 AI</h2><p>先固定一种效果做真实测试</p></div>
           </div>
 
-          <div class="style-presets" role="group" aria-label="漫画风格">
-            <button class="active" type="button" data-cartoon-preset="soft">
-              <span class="preset-art soft-art"><i></i><i></i><i></i></span><b>柔和动画</b><small>平滑自然</small>
-            </button>
-            <button type="button" data-cartoon-preset="ink">
-              <span class="preset-art ink-art"><i></i><i></i><i></i></span><b>清线漫画</b><small>轮廓清楚</small>
-            </button>
-            <button type="button" data-cartoon-preset="pop">
-              <span class="preset-art pop-art"><i></i><i></i><i></i></span><b>糖果卡通</b><small>鲜艳明快</small>
-            </button>
-            <button type="button" data-cartoon-preset="retro">
-              <span class="preset-art retro-art"><i></i><i></i><i></i></span><b>复古印刷</b><small>暖调颗粒</small>
-            </button>
-            <button type="button" data-cartoon-preset="mono">
-              <span class="preset-art mono-art"><i></i><i></i><i></i></span><b>黑白线稿</b><small>最省颜色</small>
-            </button>
-            <button type="button" data-cartoon-preset="bead">
-              <span class="preset-art bead-art"><i></i><i></i><i></i></span><b>拼豆优先</b><small>少色大块</small>
-            </button>
+          <div class="local-model-card">
+            <div class="model-portrait" aria-hidden="true"><i></i><i></i><span></span></div>
+            <div><span class="model-kicker">NEURAL STYLE MODEL</span><h3>清线动画 · Shinkai</h3><p>神经网络重新绘制色块与轮廓，适合人物、宠物和场景。</p></div>
+            <b>免费</b>
           </div>
 
-          <div class="cartoon-settings">
-            <div class="setting-block">
-              <div class="setting-label"><label for="smoothRange">细节平滑</label><output id="smoothOutput">65%</output></div>
-              <input class="range coral" id="smoothRange" type="range" min="0" max="100" value="65" />
-            </div>
-            <div class="setting-block">
-              <div class="setting-label"><label for="edgeRange">漫画轮廓</label><output id="edgeOutput">45%</output></div>
-              <input class="range mint-range" id="edgeRange" type="range" min="0" max="100" value="45" />
-            </div>
-            <div class="setting-block">
-              <div class="setting-label"><label for="toneRange">颜色层级</label><output id="toneOutput">10 级</output></div>
-              <input class="range yellow-range" id="toneRange" type="range" min="3" max="20" value="10" />
-            </div>
-            <div class="setting-block">
-              <div class="setting-label"><label for="saturationRange">色彩浓度</label><output id="saturationOutput">115%</output></div>
-              <input class="range purple-range" id="saturationRange" type="range" min="0" max="180" value="115" />
+          <div class="ai-size-setting">
+            <div><b>处理尺寸</b><span>尺寸越大，细节越多、等待越久</span></div>
+            <div class="ai-size-switch" role="group" aria-label="AI 处理尺寸">
+              <button class="active" type="button" data-ai-size="512">标准</button>
+              <button type="button" data-ai-size="768">精细</button>
             </div>
           </div>
 
-          <div class="cartoon-note"><span>说明</span><p>本地模式会简化颜色、平滑皮肤并描边，适合拼豆；不会凭空改变人物五官或姿势。</p></div>
+          <button class="button primary run-local-ai" id="runCartoonButton" type="button" disabled><span>开始 AI 漫画转换</span><small>首次需加载约 8.3 MB 免费模型</small></button>
+          <div class="model-status" id="modelStatus"><i></i><div><b id="modelStatusTitle">等待照片</b><span id="modelStatusDetail">上传后点击按钮开始转换</span></div></div>
+          <div class="cartoon-note"><span>隐私</span><p>照片只在当前浏览器中计算。模型来自 AnimeGANv2，仅用于个人、非商业体验。</p></div>
         </aside>
 
         <section class="cartoon-preview-panel">
@@ -258,32 +234,32 @@
             </div>
             <div class="cartoon-preview-grid" id="cartoonPreviewGrid" hidden>
               <figure class="original-figure"><figcaption><span>BEFORE</span> 原图</figcaption><div class="cartoon-canvas-shell"><canvas id="cartoonOriginalCanvas"></canvas></div></figure>
-              <figure class="result-figure"><figcaption><span>AFTER</span> <b id="activeStyleName">柔和动画</b></figcaption><div class="cartoon-canvas-shell result-shell"><canvas id="cartoonResultCanvas"></canvas></div></figure>
+              <figure class="result-figure"><figcaption><span>AFTER</span> <b id="activeStyleName">AI 清线动画</b></figcaption><div class="cartoon-canvas-shell result-shell"><canvas id="cartoonResultCanvas"></canvas><div class="result-waiting" id="resultWaiting"><span>✦</span><b>等待 AI 重新绘制</b><small>上传照片后点击“开始 AI 漫画转换”</small></div></div></figure>
             </div>
-            <div class="processing cartoon-processing" id="cartoonProcessing" hidden><span></span><b>正在整理线条和颜色…</b></div>
+            <div class="processing cartoon-processing" id="cartoonProcessing" hidden><span></span><b id="cartoonProcessingText">正在运行漫画模型…</b></div>
           </div>
 
           <div class="cartoon-actionbar">
             <div><b>满意这个效果了吗？</b><span>可以保存，也可以直接继续生成拼豆图纸</span></div>
             <div class="cartoon-actions">
-              <button class="button ghost" id="resetCartoonButton" type="button">恢复预设</button>
-              <button class="button ghost strong" id="cartoonDownloadButton" type="button">下载漫画图</button>
-              <button class="button primary" id="sendToBeadButton" type="button">用这张图做拼豆 <span>→</span></button>
+              <button class="button ghost strong" id="cartoonDownloadButton" type="button" disabled>下载漫画图</button>
+              <button class="button primary" id="sendToBeadButton" type="button" disabled>用这张图做拼豆 <span>→</span></button>
             </div>
           </div>
         </section>
       </section>
 
       <section class="cartoon-guide">
-        <div><span>1</span><h3>先用原始照片</h3><p>尽量不要上传带大字、拼图边框或截图黑边的图片。</p></div>
-        <div><span>2</span><h3>先简化，再拼豆</h3><p>轮廓清晰、颜色成块的图，转成拼豆后会更像原图。</p></div>
-        <div><span>3</span><h3>人物优先保留脸部</h3><p>如果主体太小，建议先裁剪到胸像或半身，再进行处理。</p></div>
+        <div><span>1</span><h3>真的神经网络重绘</h3><p>不再只是调饱和度和分辨率，模型会重新计算每个像素的动画表达。</p></div>
+        <div><span>2</span><h3>免费但需要等待</h3><p>速度取决于设备；电脑通常更快，手机建议先选“标准”尺寸。</p></div>
+        <div><span>3</span><h3>适合拼豆的下一步</h3><p>AI 图颜色更成块、轮廓更集中，可直接送入拼豆图纸继续简化。</p></div>
       </section>
     </div>
   </main>
 
   <footer><span>豆格工坊 · 为每一颗小豆子找到位置</span><span>在本地运行，不上传你的图片</span></footer>
   <canvas id="sourceCanvas" hidden></canvas>
-  <script src="app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>
