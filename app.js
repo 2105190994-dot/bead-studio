@@ -1,29 +1,25 @@
-const PALETTE = [
-  { code: 'A01', name: '瓷白', hex: '#F7F4EA' }, { code: 'A02', name: '奶油白', hex: '#FFF3CF' },
-  { code: 'A03', name: '柠檬黄', hex: '#F7DC43' }, { code: 'A04', name: '向日葵黄', hex: '#F6BD32' },
-  { code: 'A05', name: '杏黄', hex: '#F3A84A' }, { code: 'A06', name: '亮橙', hex: '#F27A36' },
-  { code: 'A07', name: '珊瑚橙', hex: '#EF5C46' }, { code: 'A08', name: '暖红', hex: '#D83B38' },
-  { code: 'B01', name: '樱桃红', hex: '#B72D3C' }, { code: 'B02', name: '酒红', hex: '#782B3A' },
-  { code: 'B03', name: '浅粉', hex: '#F7C6D0' }, { code: 'B04', name: '蜜桃粉', hex: '#F39CAF' },
-  { code: 'B05', name: '玫粉', hex: '#D95680' }, { code: 'B06', name: '梅子紫', hex: '#9B4975' },
-  { code: 'C01', name: '薰衣草', hex: '#C9B7DE' }, { code: 'C02', name: '香芋紫', hex: '#9B82C4' },
-  { code: 'C03', name: '葡萄紫', hex: '#70549C' }, { code: 'C04', name: '深紫', hex: '#493660' },
-  { code: 'D01', name: '雾蓝', hex: '#BCD7E9' }, { code: 'D02', name: '天空蓝', hex: '#75B8E5' },
-  { code: 'D03', name: '湖水蓝', hex: '#358DC2' }, { code: 'D04', name: '钴蓝', hex: '#2F5E9D' },
-  { code: 'D05', name: '藏青', hex: '#233852' }, { code: 'D06', name: '冰蓝', hex: '#CDEBE6' },
-  { code: 'E01', name: '薄荷绿', hex: '#98D8BE' }, { code: 'E02', name: '青绿', hex: '#48AD91' },
-  { code: 'E03', name: '孔雀绿', hex: '#258071' }, { code: 'E04', name: '墨绿', hex: '#28594C' },
-  { code: 'E05', name: '嫩芽绿', hex: '#BFD875' }, { code: 'E06', name: '草绿', hex: '#78AD52' },
-  { code: 'E07', name: '橄榄绿', hex: '#687A3D' }, { code: 'F01', name: '浅肤色', hex: '#F6D0B0' },
-  { code: 'F02', name: '蜜糖肤', hex: '#E7AE7A' }, { code: 'F03', name: '焦糖色', hex: '#B9754E' },
-  { code: 'F04', name: '栗棕', hex: '#74472F' }, { code: 'F05', name: '深咖', hex: '#412E28' },
-  { code: 'G01', name: '浅灰', hex: '#D7D5D0' }, { code: 'G02', name: '银灰', hex: '#A9AAA7' },
-  { code: 'G03', name: '中灰', hex: '#737675' }, { code: 'G04', name: '炭灰', hex: '#474B4C' },
-  { code: 'H01', name: '黑色', hex: '#202124' }, { code: 'H02', name: '纯白', hex: '#FFFFFF' },
-  { code: 'H03', name: '米灰', hex: '#D6CAB7' }, { code: 'H04', name: '燕麦色', hex: '#B9A78F' },
-  { code: 'H05', name: '金棕', hex: '#C89150' }, { code: 'H06', name: '赤陶', hex: '#A75842' },
-  { code: 'H07', name: '海盐蓝', hex: '#789AA5' }, { code: 'H08', name: '灰豆绿', hex: '#809C8B' }
-].map(color => ({ ...color, rgb: hexToRgb(color.hex) }));
+// MARD standard 221-color palette (A-H + M). Values are screen-reference HEX
+// colors from the public MARD chart; physical beads can still vary by batch.
+const MARD_221_SERIES = {
+  A: 'FAF4C8 FFFFD5 FEFF8B FBED56 F4D738 FEAC4C FE8B4C FFDA45 FF995B F77C31 FFDD99 FE9F72 FFC365 FD543D FFF365 FFFF9F FFE36E FEBE7D FD7C72 FFD568 FFE395 F4F57D E6C9B7 F7F8A2 FFD67D FFC830',
+  B: 'E6EE31 63F347 9EF780 5DE035 35E352 65E2A6 3DAF80 1C9C4F 27523A 95D3C2 5D722A 166F41 CAEB7B ADE946 2E5132 C5ED9C 9BB13A E6EE49 24B88C C2F0CC 156A6B 0B3C43 303A21 EEFCA5 4E846D 8D7A35 CCE1AF 9EE5B9 C5E254 E2FCB1 B0E792 9CAB5A',
+  C: 'E8FFE7 A9F9FC A0E2FB 41CCFF 01ACEB 50AAF0 3677D2 0F54C0 324BCA 3EBCE2 28DDDE 1C334D CDE8FF D5FDFF 22C4C6 1557A8 04D1F6 1D3344 1887A2 176DAF BEDDFF 67B4BE C8E2FF 7CC4FF A9E5E5 3CAED8 D3DFFA BBCFED 34488E',
+  D: 'AEB4F2 858EDD 2F54AF 182A84 B843C5 AC7BDE 8854B3 E2D3FF D5B9F8 361851 B9BAE1 DE9AD4 B90095 8B279B 2F1F90 E3E1EE C4D4F6 A45EC7 D8C3D7 9C32B2 9A009B 333A95 EBDAFC 7786E5 494FC7 DFC2F8',
+  E: 'FDD3CC FEC0DF FFB7E7 E8649E F551A2 F13D74 C63478 FFDBE9 E970CC D33793 FCDDD2 F78FC3 B5006D FFD1BA F8C7C9 FFF3EB FFE2EA FFC7DB FEBAD5 D8C7D1 BD9DA1 B785A1 937A8D E1BCE8',
+  F: 'FD957B FC3D46 F74941 FC283C E7002F 943630 971937 BC0028 E2677A 8A4526 5A2121 FD4E6A F35744 FFA9AD D30022 FEC2A6 E69C79 D37C46 C1444A CD9391 F7B4C6 FDC0D0 F67E66 E698AA E54B4F',
+  G: 'FFE2CE FFC4AA F4C3A5 E1B383 EDB045 E99C17 9D5B3E 753832 E6B483 D98C39 E0C593 FFC890 B7714A 8D614C FCF9E0 F2D9BA 78524B FFE4CC E07935 A94023 B88558',
+  H: 'FDFBFF FEFFFF B6B1BA 89858C 48464E 2F2B2F 000000 E7D6DB EDEDED EEE9EA CECDD5 FFF5ED F5ECD2 CFD7D3 98A6A8 1D1414 F1EDED FFFDF0 F6EFE2 949FA3 FFFBE1 CACAD4 9A9D94',
+  M: 'BCC6B8 8AA386 697D80 E3D2BC D0CCAA B0A782 B4A497 B38281 A58767 C5B2BC 9F7594 644749 D19066 C77362 757D78'
+};
+
+const MARD_SERIES_NAMES = { A: '黄橙系', B: '绿色系', C: '蓝青系', D: '蓝紫系', E: '粉玫系', F: '红色系', G: '棕肤系', H: '黑白灰系', M: '大地系' };
+const PALETTE = Object.entries(MARD_221_SERIES).flatMap(([series, values]) => values.split(' ').map((value, index) => {
+  const code = `${series}${index + 1}`;
+  const hex = `#${value}`;
+  const rgb = hexToRgb(hex);
+  return { code, name: `${MARD_SERIES_NAMES[series]} · MARD ${code}`, hex, rgb, lab: rgbToLab(rgb) };
+}));
+const PALETTE_BY_CODE = new Map(PALETTE.map(color => [color.code, color]));
 
 const els = {
   fileInput: document.querySelector('#fileInput'), uploadZone: document.querySelector('#uploadZone'),
@@ -34,6 +30,7 @@ const els = {
   gridNumber: document.querySelector('#gridNumber'), gridMinus: document.querySelector('#gridMinus'),
   gridPlus: document.querySelector('#gridPlus'), colorRange: document.querySelector('#colorRange'),
   colorOutput: document.querySelector('#colorOutput'), backgroundToggle: document.querySelector('#backgroundToggle'),
+  outlineToggle: document.querySelector('#outlineToggle'),
   generateButton: document.querySelector('#generateButton'), emptyState: document.querySelector('#emptyState'),
   canvasWrap: document.querySelector('#canvasWrap'), patternCanvas: document.querySelector('#patternCanvas'),
   sourceCanvas: document.querySelector('#sourceCanvas'), processing: document.querySelector('#processing'),
@@ -60,10 +57,30 @@ function hexToRgb(hex) {
 }
 
 function luminance({ r, g, b }) { return .2126 * r + .7152 * g + .0722 * b; }
-function distance(a, b) {
-  const rMean = (a.r + b.r) / 2;
-  const r = a.r - b.r, g = a.g - b.g, bl = a.b - b.b;
-  return (2 + rMean / 256) * r * r + 4 * g * g + (2 + (255 - rMean) / 256) * bl * bl;
+function rgbToLab({ r, g, b }) {
+  const linear = value => {
+    const channel = value / 255;
+    return channel > .04045 ? ((channel + .055) / 1.055) ** 2.4 : channel / 12.92;
+  };
+  const red = linear(r), green = linear(g), blue = linear(b);
+  const x = (red * .4124564 + green * .3575761 + blue * .1804375) / .95047;
+  const y = red * .2126729 + green * .7151522 + blue * .072175;
+  const z = (red * .0193339 + green * .119192 + blue * .9503041) / 1.08883;
+  const pivot = value => value > .008856 ? Math.cbrt(value) : 7.787 * value + 16 / 116;
+  return { l: 116 * pivot(y) - 16, a: 500 * (pivot(x) - pivot(y)), b: 200 * (pivot(y) - pivot(z)) };
+}
+
+function labDistance(a, b) {
+  const dl = a.l - b.l, da = a.a - b.a, db = a.b - b.b;
+  return dl * dl + da * da + db * db;
+}
+
+function nearestPaletteColor(pixel, palette = PALETTE) {
+  const lab = rgbToLab(pixel);
+  return palette.reduce((best, color) => {
+    const dist = labDistance(lab, color.lab);
+    return dist < best.dist ? { color, dist } : best;
+  }, { color: palette[0], dist: Infinity }).color;
 }
 
 function setRangeFill(input) {
@@ -172,7 +189,7 @@ function selectPalette(pixels, count) {
   const frequencies = new Map(PALETTE.map(color => [color.code, 0]));
   pixels.forEach(pixel => {
     if (!pixel) return;
-    const nearest = PALETTE.reduce((best, color) => distance(pixel, color.rgb) < best.dist ? { color, dist: distance(pixel, color.rgb) } : best, { color: PALETTE[0], dist: Infinity }).color;
+    const nearest = nearestPaletteColor(pixel);
     frequencies.set(nearest.code, frequencies.get(nearest.code) + 1);
   });
   const ranked = [...PALETTE].sort((a, b) => frequencies.get(b.code) - frequencies.get(a.code));
@@ -186,18 +203,87 @@ function quantize(pixels) {
   const selectedPalette = selectPalette(pixels, state.colors);
   return pixels.map(pixel => {
     if (!pixel) return null;
-    return selectedPalette.reduce((best, color) => {
-      const dist = distance(pixel, color.rgb);
-      return dist < best.dist ? { color, dist } : best;
-    }, { color: selectedPalette[0], dist: Infinity }).color;
+    return nearestPaletteColor(pixel, selectedPalette);
   });
+}
+
+function addSubjectOutline(cells) {
+  if (!els.outlineToggle.checked || state.cols < 3 || state.rows < 3) return cells;
+  const black = PALETTE_BY_CODE.get('H7');
+  if (!black) return cells;
+
+  const borderCounts = new Map();
+  const borderIndexes = [];
+  const addBorder = index => {
+    borderIndexes.push(index);
+    const code = cells[index]?.code;
+    if (code) borderCounts.set(code, (borderCounts.get(code) || 0) + 1);
+  };
+  for (let x = 0; x < state.cols; x++) {
+    addBorder(x);
+    if (state.rows > 1) addBorder((state.rows - 1) * state.cols + x);
+  }
+  for (let y = 1; y < state.rows - 1; y++) {
+    addBorder(y * state.cols);
+    if (state.cols > 1) addBorder(y * state.cols + state.cols - 1);
+  }
+
+  const rankedBorderColors = [...borderCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const coloredBorderTotal = rankedBorderColors.reduce((sum, item) => sum + item[1], 0);
+  const backgroundCodes = new Set();
+  let covered = 0;
+  for (const [code, count] of rankedBorderColors) {
+    if (code === 'H7' || count < 2 || backgroundCodes.size >= 6) continue;
+    backgroundCodes.add(code);
+    covered += count;
+    if (covered >= coloredBorderTotal * .72 && backgroundCodes.size >= 2) break;
+  }
+
+  const background = new Uint8Array(cells.length);
+  const queue = [];
+  const canBeBackground = index => !cells[index] || backgroundCodes.has(cells[index].code);
+  borderIndexes.forEach(index => {
+    if (!background[index] && canBeBackground(index)) {
+      background[index] = 1;
+      queue.push(index);
+    }
+  });
+  for (let head = 0; head < queue.length; head++) {
+    const index = queue[head], x = index % state.cols, y = Math.floor(index / state.cols);
+    const neighbors = [];
+    if (x > 0) neighbors.push(index - 1);
+    if (x + 1 < state.cols) neighbors.push(index + 1);
+    if (y > 0) neighbors.push(index - state.cols);
+    if (y + 1 < state.rows) neighbors.push(index + state.cols);
+    neighbors.forEach(next => {
+      if (!background[next] && canBeBackground(next)) {
+        background[next] = 1;
+        queue.push(next);
+      }
+    });
+  }
+
+  const outlined = cells.slice();
+  const directions = [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]];
+  cells.forEach((color, index) => {
+    if (!color || background[index]) return;
+    const x = index % state.cols, y = Math.floor(index / state.cols);
+    const touchesBackground = directions.some(([dx, dy]) => {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= state.cols || ny >= state.rows) return true;
+      return background[ny * state.cols + nx] === 1;
+    });
+    if (touchesBackground) outlined[index] = black;
+  });
+  return outlined;
 }
 
 function generatePattern() {
   if (!state.image) { els.fileInput.click(); return; }
   els.processing.hidden = false;
   requestAnimationFrame(() => setTimeout(() => {
-    state.cells = quantize(samplePixels());
+    const pixels = samplePixels();
+    state.cells = addSubjectOutline(quantize(pixels));
     state.generated = true; state.selectedColor = null;
     els.emptyState.hidden = true; els.canvasWrap.hidden = false; els.resultSection.hidden = false;
     renderPattern(); renderLegend(); updateStats(); fitCanvas();
@@ -237,9 +323,9 @@ function renderPattern(forExport = false) {
     patternCtx.strokeStyle = x % 5 === 4 || y % 5 === 4 ? '#c8bdb0' : '#ded9d3';
     patternCtx.lineWidth = x % 5 === 4 || y % 5 === 4 ? 1 : .55;
     patternCtx.strokeRect(px + .25, py + .25, cell - .5, cell - .5);
-    if (color && state.view === 'codes' && cell >= 14) {
+    if (color && state.view === 'codes') {
       patternCtx.fillStyle = luminance(color.rgb) > 145 ? '#3d3833' : '#fff';
-      patternCtx.font = `700 ${Math.max(6, Math.floor(cell * .31))}px Segoe UI, Microsoft YaHei, sans-serif`;
+      patternCtx.font = `800 ${Math.max(5, cell * .34).toFixed(1)}px Arial Narrow, Segoe UI, Microsoft YaHei, sans-serif`;
       patternCtx.textAlign = 'center'; patternCtx.textBaseline = 'middle';
       patternCtx.fillText(color.code, px + cell / 2, py + cell / 2 + .4);
     }
@@ -269,7 +355,7 @@ function drawCoordinates(ctx, { cell, margin, width, height }) {
 function countsByColor() {
   const counts = new Map();
   state.cells.forEach(color => { if (color) counts.set(color.code, (counts.get(color.code) || 0) + 1); });
-  return [...counts.entries()].map(([code, count]) => ({ color: PALETTE.find(c => c.code === code), count })).sort((a, b) => b.count - a.count);
+  return [...counts.entries()].map(([code, count]) => ({ color: PALETTE_BY_CODE.get(code), count })).sort((a, b) => b.count - a.count);
 }
 
 function renderLegend() {
@@ -282,7 +368,7 @@ function renderLegend() {
     </button>`;
   }).join('');
   els.legendGrid.querySelectorAll('.legend-card').forEach(card => card.addEventListener('click', () => {
-    state.selectedColor = PALETTE.find(color => color.code === card.dataset.code);
+    state.selectedColor = PALETTE_BY_CODE.get(card.dataset.code);
     renderLegend();
   }));
 }
@@ -342,6 +428,7 @@ els.gridPlus.addEventListener('click', () => setGrid(state.cols + 1));
 document.querySelectorAll('[data-preset]').forEach(button => button.addEventListener('click', () => setGrid({ simple: 32, balanced: 48, detail: 64 }[button.dataset.preset])));
 els.colorRange.addEventListener('input', event => { state.colors = Number(event.target.value); els.colorOutput.textContent = `${state.colors} 色`; setRangeFill(event.target); if (state.image) scheduleGenerate(); });
 els.backgroundToggle.addEventListener('change', () => state.image && scheduleGenerate());
+els.outlineToggle.addEventListener('change', () => state.image && scheduleGenerate());
 els.generateButton.addEventListener('click', generatePattern);
 els.zoomOut.addEventListener('click', () => { state.zoom = Math.max(.35, state.zoom - .15); applyZoom(); });
 els.zoomIn.addEventListener('click', () => { state.zoom = Math.min(2.5, state.zoom + .15); applyZoom(); });
