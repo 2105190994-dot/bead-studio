@@ -1,0 +1,8 @@
+# Private local previews may contain user photos.
+preview/
+
+# Generated iOS build files.
+mobile/ios/BeanQ.xcodeproj/
+mobile/ios/DerivedData/
+mobile/ios/.build/
+.DS_Store

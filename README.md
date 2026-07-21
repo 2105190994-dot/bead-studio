@@ -19,6 +19,7 @@ python -m http.server 5173
 - 标准 / 精细两档 AI 推理尺寸，结果可下载或直接送入拼豆图纸
 - 上传、拖拽 JPG / PNG / WEBP
 - 漫画效果可下载 PNG，或一键送入拼豆图纸
+- `mobile/ios` 提供针对 iPhone 14 Pro 的原生本机 Q 版重绘实现：Vision 自动识别人脸、Core ML 图生图、生成后立即释放模型内存
 - 自动推荐格数，手动选择 12–100 横向格
 - 4–32 色近似拼豆色卡匹配
 - 每格色号、横纵坐标、5 格加粗辅助线
@@ -31,3 +32,5 @@ python -m http.server 5173
 > 内置色卡为通用近似色。不同品牌、批次和屏幕显示会有色差，正式备料前建议对照实体色卡。
 
 > 漫画功能使用 AnimeGANv2 的 Shinkai_53 ONNX 模型进行神经网络重绘。模型版权归原作者所有，按其说明仅供个人、研究与非商业用途；商业使用需另行取得许可。项目地址：https://github.com/TachibanaYoshino/AnimeGANv2
+
+网页中的 AnimeGANv2 仍是轻量预览，不能达到人物五官与形体重新设计的 Q 版效果。真正的“大眼 Q 版”本机重绘在 [`mobile/ios`](mobile/ios)；它为 iPhone 14 Pro 固定使用 512px、14 步和低内存模式。安装与签名说明见 [`mobile/ios/README.md`](mobile/ios/README.md)。

@@ -1,0 +1,35 @@
+name: iOS build check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mobile/ios/**"
+      - ".github/workflows/ios-build.yml"
+  pull_request:
+    paths:
+      - "mobile/ios/**"
+      - ".github/workflows/ios-build.yml"
+  workflow_dispatch:
+
+jobs:
+  simulator-build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: mobile/ios
+        run: xcodegen generate
+      - name: Build without signing
+        working-directory: mobile/ios
+        run: >-
+          xcodebuild
+          -project BeanQ.xcodeproj
+          -scheme BeanQ
+          -configuration Debug
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO
+          build
