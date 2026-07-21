@@ -17,14 +17,23 @@
       <span>豆格工坊</span>
       <em>BEAD STUDIO</em>
     </a>
-    <div class="top-actions">
+    <nav class="mode-nav" aria-label="工作区切换">
+      <button class="active" type="button" data-mode="bead"><span>▦</span> 拼豆图纸</button>
+      <button type="button" data-mode="cartoon"><span>✦</span> 漫画预处理 <em>NEW</em></button>
+    </nav>
+    <div class="top-actions" id="beadTopActions">
       <span class="privacy"><i></i> 图片仅在你的浏览器中处理</span>
       <button class="button ghost small" id="printButton" type="button">打印图纸</button>
       <button class="button primary small" id="downloadButton" type="button">导出 PNG</button>
     </div>
+    <div class="top-actions" id="cartoonTopActions" hidden>
+      <span class="privacy"><i></i> 本地处理，不上传原图</span>
+      <button class="button primary small" id="cartoonTopDownload" type="button">保存漫画图</button>
+    </div>
   </header>
 
   <main class="app-shell">
+    <div class="mode-page" id="beadMode">
     <section class="intro">
       <div>
         <p class="eyebrow">PIXEL TO PERLER</p>
@@ -149,6 +158,128 @@
         <p>实际豆子颜色会因品牌和屏幕显示略有差异，建议先用少量豆子对色。购买时每种颜色多准备约 5%，会更从容。</p>
       </div>
     </section>
+    </div>
+
+    <div class="mode-page cartoon-page" id="cartoonMode" hidden>
+      <section class="intro cartoon-intro">
+        <div>
+          <p class="eyebrow">PHOTO TO COMIC</p>
+          <h1>先减掉照片的噪音，<br><span>再留下漫画的神韵。</span></h1>
+        </div>
+        <p class="intro-copy">平滑实拍细节、合并相近颜色，再用清晰轮廓抓住人物和主体。处理后的图片更适合继续转成拼豆图纸。</p>
+      </section>
+
+      <section class="cartoon-workspace">
+        <aside class="cartoon-controls">
+          <div class="panel-heading">
+            <span class="step-badge">01</span>
+            <div><h2>上传实拍图</h2><p>人物、宠物和风景都可以</p></div>
+          </div>
+
+          <label class="upload-zone cartoon-upload" id="cartoonUploadZone" for="cartoonFileInput">
+            <input id="cartoonFileInput" type="file" accept="image/jpeg,image/png,image/webp" hidden />
+            <span class="upload-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <strong>拖入原图或点击上传</strong>
+            <small>建议使用没有文字和边框的原始照片</small>
+          </label>
+          <div class="file-row" id="cartoonFileRow" hidden>
+            <img id="cartoonFileThumb" alt="原图缩略图" />
+            <div><strong id="cartoonFileName">原图.jpg</strong><span id="cartoonFileMeta">1200 × 1200</span></div>
+            <button id="cartoonReplaceButton" type="button">更换</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="panel-heading compact">
+            <span class="step-badge mint">02</span>
+            <div><h2>选择漫画感觉</h2><p>预设后还能继续微调</p></div>
+          </div>
+
+          <div class="style-presets" role="group" aria-label="漫画风格">
+            <button class="active" type="button" data-cartoon-preset="soft">
+              <span class="preset-art soft-art"><i></i><i></i><i></i></span><b>柔和动画</b><small>平滑自然</small>
+            </button>
+            <button type="button" data-cartoon-preset="ink">
+              <span class="preset-art ink-art"><i></i><i></i><i></i></span><b>清线漫画</b><small>轮廓清楚</small>
+            </button>
+            <button type="button" data-cartoon-preset="pop">
+              <span class="preset-art pop-art"><i></i><i></i><i></i></span><b>糖果卡通</b><small>鲜艳明快</small>
+            </button>
+            <button type="button" data-cartoon-preset="retro">
+              <span class="preset-art retro-art"><i></i><i></i><i></i></span><b>复古印刷</b><small>暖调颗粒</small>
+            </button>
+            <button type="button" data-cartoon-preset="mono">
+              <span class="preset-art mono-art"><i></i><i></i><i></i></span><b>黑白线稿</b><small>最省颜色</small>
+            </button>
+            <button type="button" data-cartoon-preset="bead">
+              <span class="preset-art bead-art"><i></i><i></i><i></i></span><b>拼豆优先</b><small>少色大块</small>
+            </button>
+          </div>
+
+          <div class="cartoon-settings">
+            <div class="setting-block">
+              <div class="setting-label"><label for="smoothRange">细节平滑</label><output id="smoothOutput">65%</output></div>
+              <input class="range coral" id="smoothRange" type="range" min="0" max="100" value="65" />
+            </div>
+            <div class="setting-block">
+              <div class="setting-label"><label for="edgeRange">漫画轮廓</label><output id="edgeOutput">45%</output></div>
+              <input class="range mint-range" id="edgeRange" type="range" min="0" max="100" value="45" />
+            </div>
+            <div class="setting-block">
+              <div class="setting-label"><label for="toneRange">颜色层级</label><output id="toneOutput">10 级</output></div>
+              <input class="range yellow-range" id="toneRange" type="range" min="3" max="20" value="10" />
+            </div>
+            <div class="setting-block">
+              <div class="setting-label"><label for="saturationRange">色彩浓度</label><output id="saturationOutput">115%</output></div>
+              <input class="range purple-range" id="saturationRange" type="range" min="0" max="180" value="115" />
+            </div>
+          </div>
+
+          <div class="cartoon-note"><span>说明</span><p>本地模式会简化颜色、平滑皮肤并描边，适合拼豆；不会凭空改变人物五官或姿势。</p></div>
+        </aside>
+
+        <section class="cartoon-preview-panel">
+          <div class="preview-toolbar cartoon-toolbar">
+            <div><span class="live-dot"></span><h2>漫画效果预览</h2><span class="canvas-size" id="cartoonImageSize">等待上传</span></div>
+            <div class="compare-switch" role="group" aria-label="预览布局">
+              <button class="active" type="button" data-cartoon-view="compare">对比</button>
+              <button type="button" data-cartoon-view="result">只看效果</button>
+            </div>
+          </div>
+
+          <div class="cartoon-stage" id="cartoonStage">
+            <div class="cartoon-empty" id="cartoonEmpty">
+              <div class="comic-face" aria-hidden="true"><i></i><i></i><span></span></div>
+              <h3>上传一张实拍照片</h3>
+              <p>这里会同时显示原图和漫画处理结果</p>
+              <button type="button" id="cartoonEmptyUpload">选择原图</button>
+            </div>
+            <div class="cartoon-preview-grid" id="cartoonPreviewGrid" hidden>
+              <figure class="original-figure"><figcaption><span>BEFORE</span> 原图</figcaption><div class="cartoon-canvas-shell"><canvas id="cartoonOriginalCanvas"></canvas></div></figure>
+              <figure class="result-figure"><figcaption><span>AFTER</span> <b id="activeStyleName">柔和动画</b></figcaption><div class="cartoon-canvas-shell result-shell"><canvas id="cartoonResultCanvas"></canvas></div></figure>
+            </div>
+            <div class="processing cartoon-processing" id="cartoonProcessing" hidden><span></span><b>正在整理线条和颜色…</b></div>
+          </div>
+
+          <div class="cartoon-actionbar">
+            <div><b>满意这个效果了吗？</b><span>可以保存，也可以直接继续生成拼豆图纸</span></div>
+            <div class="cartoon-actions">
+              <button class="button ghost" id="resetCartoonButton" type="button">恢复预设</button>
+              <button class="button ghost strong" id="cartoonDownloadButton" type="button">下载漫画图</button>
+              <button class="button primary" id="sendToBeadButton" type="button">用这张图做拼豆 <span>→</span></button>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="cartoon-guide">
+        <div><span>1</span><h3>先用原始照片</h3><p>尽量不要上传带大字、拼图边框或截图黑边的图片。</p></div>
+        <div><span>2</span><h3>先简化，再拼豆</h3><p>轮廓清晰、颜色成块的图，转成拼豆后会更像原图。</p></div>
+        <div><span>3</span><h3>人物优先保留脸部</h3><p>如果主体太小，建议先裁剪到胸像或半身，再进行处理。</p></div>
+      </section>
+    </div>
   </main>
 
   <footer><span>豆格工坊 · 为每一颗小豆子找到位置</span><span>在本地运行，不上传你的图片</span></footer>

@@ -357,3 +357,237 @@ els.printButton.addEventListener('click', () => state.generated ? window.print()
 window.addEventListener('resize', () => state.generated && fitCanvas());
 
 setRangeFill(els.gridRange); setRangeFill(els.colorRange); updateEstimatedSize();
+
+// --- Photo-to-comic preprocessing workspace ---
+const cartoonEls = {
+  beadMode: document.querySelector('#beadMode'), cartoonMode: document.querySelector('#cartoonMode'),
+  beadTopActions: document.querySelector('#beadTopActions'), cartoonTopActions: document.querySelector('#cartoonTopActions'),
+  fileInput: document.querySelector('#cartoonFileInput'), uploadZone: document.querySelector('#cartoonUploadZone'),
+  fileRow: document.querySelector('#cartoonFileRow'), fileThumb: document.querySelector('#cartoonFileThumb'),
+  fileName: document.querySelector('#cartoonFileName'), fileMeta: document.querySelector('#cartoonFileMeta'),
+  replaceButton: document.querySelector('#cartoonReplaceButton'), emptyUpload: document.querySelector('#cartoonEmptyUpload'),
+  empty: document.querySelector('#cartoonEmpty'), previewGrid: document.querySelector('#cartoonPreviewGrid'),
+  originalCanvas: document.querySelector('#cartoonOriginalCanvas'), resultCanvas: document.querySelector('#cartoonResultCanvas'),
+  processing: document.querySelector('#cartoonProcessing'), imageSize: document.querySelector('#cartoonImageSize'),
+  activeStyleName: document.querySelector('#activeStyleName'), smooth: document.querySelector('#smoothRange'),
+  smoothOutput: document.querySelector('#smoothOutput'), edge: document.querySelector('#edgeRange'),
+  edgeOutput: document.querySelector('#edgeOutput'), tones: document.querySelector('#toneRange'),
+  toneOutput: document.querySelector('#toneOutput'), saturation: document.querySelector('#saturationRange'),
+  saturationOutput: document.querySelector('#saturationOutput'), reset: document.querySelector('#resetCartoonButton'),
+  download: document.querySelector('#cartoonDownloadButton'), topDownload: document.querySelector('#cartoonTopDownload'),
+  sendToBead: document.querySelector('#sendToBeadButton')
+};
+
+const CARTOON_PRESETS = {
+  soft: { name: '柔和动画', smooth: 65, edge: 42, tones: 10, saturation: 115, warm: 3, grain: 0, mono: false },
+  ink: { name: '清线漫画', smooth: 43, edge: 74, tones: 8, saturation: 108, warm: 0, grain: 0, mono: false },
+  pop: { name: '糖果卡通', smooth: 58, edge: 57, tones: 7, saturation: 155, warm: 4, grain: 0, mono: false },
+  retro: { name: '复古印刷', smooth: 48, edge: 52, tones: 7, saturation: 86, warm: 14, grain: 11, mono: false },
+  mono: { name: '黑白线稿', smooth: 28, edge: 86, tones: 5, saturation: 0, warm: 0, grain: 3, mono: true },
+  bead: { name: '拼豆优先', smooth: 82, edge: 34, tones: 5, saturation: 120, warm: 2, grain: 0, mono: false }
+};
+
+const cartoonState = { image: null, fileName: '', preset: 'soft', rendering: false, renderQueued: false };
+const cartoonOriginalCtx = cartoonEls.originalCanvas.getContext('2d', { willReadFrequently: true });
+const cartoonResultCtx = cartoonEls.resultCanvas.getContext('2d', { willReadFrequently: true });
+const cartoonWorkCanvas = document.createElement('canvas');
+const cartoonWorkCtx = cartoonWorkCanvas.getContext('2d', { willReadFrequently: true });
+
+function switchMode(mode, scroll = true) {
+  const cartoon = mode === 'cartoon';
+  cartoonEls.beadMode.hidden = cartoon;
+  cartoonEls.cartoonMode.hidden = !cartoon;
+  cartoonEls.beadTopActions.hidden = cartoon;
+  cartoonEls.cartoonTopActions.hidden = !cartoon;
+  document.querySelectorAll('[data-mode]').forEach(button => button.classList.toggle('active', button.dataset.mode === mode));
+  if (scroll) window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function cartoonDimensions(image) {
+  const maxSide = 1200;
+  const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+  return { width: Math.max(1, Math.round(image.naturalWidth * scale)), height: Math.max(1, Math.round(image.naturalHeight * scale)) };
+}
+
+function loadCartoonFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = event => {
+    const image = new Image();
+    image.onload = () => {
+      cartoonState.image = image;
+      cartoonState.fileName = file.name;
+      cartoonEls.fileThumb.src = event.target.result;
+      cartoonEls.fileName.textContent = file.name;
+      cartoonEls.fileMeta.textContent = `${image.naturalWidth} × ${image.naturalHeight}`;
+      cartoonEls.imageSize.textContent = `${image.naturalWidth} × ${image.naturalHeight}`;
+      cartoonEls.uploadZone.hidden = true;
+      cartoonEls.fileRow.hidden = false;
+      cartoonEls.empty.hidden = true;
+      cartoonEls.previewGrid.hidden = false;
+      renderCartoon();
+    };
+    image.src = event.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function currentCartoonSettings() {
+  const preset = CARTOON_PRESETS[cartoonState.preset];
+  return {
+    smooth: Number(cartoonEls.smooth.value), edge: Number(cartoonEls.edge.value),
+    tones: Number(cartoonEls.tones.value), saturation: Number(cartoonEls.saturation.value),
+    warm: preset.warm, grain: preset.grain, mono: preset.mono
+  };
+}
+
+function updateCartoonOutputs() {
+  cartoonEls.smoothOutput.textContent = `${cartoonEls.smooth.value}%`;
+  cartoonEls.edgeOutput.textContent = `${cartoonEls.edge.value}%`;
+  cartoonEls.toneOutput.textContent = `${cartoonEls.tones.value} 级`;
+  cartoonEls.saturationOutput.textContent = `${cartoonEls.saturation.value}%`;
+  [cartoonEls.smooth, cartoonEls.edge, cartoonEls.tones, cartoonEls.saturation].forEach(setRangeFill);
+}
+
+function applyCartoonPreset(key, render = true) {
+  const preset = CARTOON_PRESETS[key];
+  cartoonState.preset = key;
+  cartoonEls.smooth.value = preset.smooth;
+  cartoonEls.edge.value = preset.edge;
+  cartoonEls.tones.value = preset.tones;
+  cartoonEls.saturation.value = preset.saturation;
+  cartoonEls.activeStyleName.textContent = preset.name;
+  document.querySelectorAll('[data-cartoon-preset]').forEach(button => button.classList.toggle('active', button.dataset.cartoonPreset === key));
+  updateCartoonOutputs();
+  if (render && cartoonState.image) scheduleCartoonRender();
+}
+
+let cartoonRenderTimer;
+function scheduleCartoonRender() {
+  clearTimeout(cartoonRenderTimer);
+  cartoonRenderTimer = setTimeout(renderCartoon, 160);
+}
+
+function renderCartoon() {
+  if (!cartoonState.image) return;
+  if (cartoonState.rendering) { cartoonState.renderQueued = true; return; }
+  cartoonState.rendering = true;
+  cartoonEls.processing.hidden = false;
+  requestAnimationFrame(() => setTimeout(() => {
+    const { width, height } = cartoonDimensions(cartoonState.image);
+    cartoonEls.originalCanvas.width = width; cartoonEls.originalCanvas.height = height;
+    cartoonEls.resultCanvas.width = width; cartoonEls.resultCanvas.height = height;
+    cartoonOriginalCtx.clearRect(0, 0, width, height);
+    cartoonOriginalCtx.drawImage(cartoonState.image, 0, 0, width, height);
+    processCartoonPixels(width, height, currentCartoonSettings());
+    cartoonEls.processing.hidden = true;
+    cartoonState.rendering = false;
+    if (cartoonState.renderQueued) { cartoonState.renderQueued = false; scheduleCartoonRender(); }
+  }, 30));
+}
+
+function processCartoonPixels(width, height, settings) {
+  const shrink = Math.max(.28, 1 - settings.smooth * .0068);
+  const smallWidth = Math.max(80, Math.round(width * shrink));
+  const smallHeight = Math.max(80, Math.round(height * shrink));
+  cartoonWorkCanvas.width = smallWidth; cartoonWorkCanvas.height = smallHeight;
+  cartoonWorkCtx.imageSmoothingEnabled = true;
+  cartoonWorkCtx.imageSmoothingQuality = 'high';
+  cartoonWorkCtx.clearRect(0, 0, smallWidth, smallHeight);
+  cartoonWorkCtx.drawImage(cartoonState.image, 0, 0, smallWidth, smallHeight);
+  cartoonResultCtx.clearRect(0, 0, width, height);
+  cartoonResultCtx.imageSmoothingEnabled = true;
+  cartoonResultCtx.imageSmoothingQuality = 'high';
+  cartoonResultCtx.drawImage(cartoonWorkCanvas, 0, 0, width, height);
+
+  const imageData = cartoonResultCtx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  const gray = new Uint8Array(width * height);
+  for (let p = 0, i = 0; i < data.length; i += 4, p++) gray[p] = Math.round(data[i] * .299 + data[i + 1] * .587 + data[i + 2] * .114);
+
+  const step = 255 / Math.max(2, settings.tones - 1);
+  const saturation = settings.saturation / 100;
+  const edgePower = settings.edge / 100;
+  const edgeThreshold = 118 - settings.edge * .72;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const p = y * width + x, i = p * 4;
+      let r = data[i], g = data[i + 1], b = data[i + 2];
+      const light = gray[p];
+      r = light + (r - light) * saturation;
+      g = light + (g - light) * saturation;
+      b = light + (b - light) * saturation;
+      if (settings.mono) r = g = b = light;
+      r = Math.round(Math.max(0, Math.min(255, r + settings.warm)) / step) * step;
+      g = Math.round(Math.max(0, Math.min(255, g + settings.warm * .25)) / step) * step;
+      b = Math.round(Math.max(0, Math.min(255, b - settings.warm * .65)) / step) * step;
+
+      let magnitude = 0;
+      if (x > 0 && y > 0 && x < width - 1 && y < height - 1 && edgePower > 0) {
+        const tl = gray[p - width - 1], tc = gray[p - width], tr = gray[p - width + 1];
+        const ml = gray[p - 1], mr = gray[p + 1];
+        const bl = gray[p + width - 1], bc = gray[p + width], br = gray[p + width + 1];
+        const gx = -tl + tr - 2 * ml + 2 * mr - bl + br;
+        const gy = -tl - 2 * tc - tr + bl + 2 * bc + br;
+        magnitude = Math.sqrt(gx * gx + gy * gy);
+      }
+      const edge = Math.max(0, Math.min(1, (magnitude - edgeThreshold) / 145)) * edgePower;
+      const darken = 1 - edge * (settings.mono ? 1 : .88);
+      const grain = settings.grain ? (((p * 17 + y * 13) % 19) - 9) * settings.grain / 20 : 0;
+      data[i] = Math.max(0, Math.min(255, r * darken + grain));
+      data[i + 1] = Math.max(0, Math.min(255, g * darken + grain));
+      data[i + 2] = Math.max(0, Math.min(255, b * darken + grain));
+    }
+  }
+  cartoonResultCtx.putImageData(imageData, 0, 0);
+}
+
+function downloadCartoon() {
+  if (!cartoonState.image) { cartoonEls.fileInput.click(); return; }
+  cartoonEls.resultCanvas.toBlob(blob => {
+    const link = document.createElement('a');
+    const base = (cartoonState.fileName || '漫画处理').replace(/\.[^.]+$/, '');
+    link.download = `${base}-${CARTOON_PRESETS[cartoonState.preset].name}.png`;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  }, 'image/png');
+}
+
+function sendCartoonToBead() {
+  if (!cartoonState.image) { cartoonEls.fileInput.click(); return; }
+  const dataUrl = cartoonEls.resultCanvas.toDataURL('image/png');
+  const image = new Image();
+  image.onload = () => {
+    state.image = image;
+    state.fileName = `${(cartoonState.fileName || '照片').replace(/\.[^.]+$/, '')}-漫画.png`;
+    els.fileThumb.src = dataUrl;
+    els.fileName.textContent = state.fileName;
+    els.fileMeta.textContent = `${image.naturalWidth} × ${image.naturalHeight}`;
+    els.uploadZone.hidden = true; els.fileRow.hidden = false;
+    setGrid(autoGridSize(image.naturalWidth, image.naturalHeight), false);
+    switchMode('bead', false);
+    generatePattern();
+    setTimeout(() => document.querySelector('.workspace').scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+  };
+  image.src = dataUrl;
+}
+
+document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => switchMode(button.dataset.mode)));
+document.querySelectorAll('[data-cartoon-preset]').forEach(button => button.addEventListener('click', () => applyCartoonPreset(button.dataset.cartoonPreset)));
+document.querySelectorAll('[data-cartoon-view]').forEach(button => button.addEventListener('click', () => {
+  document.querySelectorAll('[data-cartoon-view]').forEach(item => item.classList.toggle('active', item === button));
+  cartoonEls.previewGrid.classList.toggle('single', button.dataset.cartoonView === 'result');
+}));
+cartoonEls.fileInput.addEventListener('change', event => loadCartoonFile(event.target.files[0]));
+cartoonEls.replaceButton.addEventListener('click', () => cartoonEls.fileInput.click());
+cartoonEls.emptyUpload.addEventListener('click', () => cartoonEls.fileInput.click());
+['dragenter', 'dragover'].forEach(type => cartoonEls.uploadZone.addEventListener(type, event => { event.preventDefault(); cartoonEls.uploadZone.classList.add('dragging'); }));
+['dragleave', 'drop'].forEach(type => cartoonEls.uploadZone.addEventListener(type, event => { event.preventDefault(); cartoonEls.uploadZone.classList.remove('dragging'); }));
+cartoonEls.uploadZone.addEventListener('drop', event => loadCartoonFile(event.dataTransfer.files[0]));
+[cartoonEls.smooth, cartoonEls.edge, cartoonEls.tones, cartoonEls.saturation].forEach(input => input.addEventListener('input', () => { updateCartoonOutputs(); if (cartoonState.image) scheduleCartoonRender(); }));
+cartoonEls.reset.addEventListener('click', () => applyCartoonPreset(cartoonState.preset));
+cartoonEls.download.addEventListener('click', downloadCartoon);
+cartoonEls.topDownload.addEventListener('click', downloadCartoon);
+cartoonEls.sendToBead.addEventListener('click', sendCartoonToBead);
+applyCartoonPreset('soft', false);
