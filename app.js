@@ -29,8 +29,8 @@ const els = {
   emptyUploadButton: document.querySelector('#emptyUploadButton'), gridRange: document.querySelector('#gridRange'),
   gridNumber: document.querySelector('#gridNumber'), gridMinus: document.querySelector('#gridMinus'),
   gridPlus: document.querySelector('#gridPlus'), colorRange: document.querySelector('#colorRange'),
-  colorOutput: document.querySelector('#colorOutput'), backgroundToggle: document.querySelector('#backgroundToggle'),
-  outlineToggle: document.querySelector('#outlineToggle'),
+  colorOutput: document.querySelector('#colorOutput'),
+  compositionModes: [...document.querySelectorAll('input[name="compositionMode"]')],
   generateButton: document.querySelector('#generateButton'), emptyState: document.querySelector('#emptyState'),
   canvasWrap: document.querySelector('#canvasWrap'), patternCanvas: document.querySelector('#patternCanvas'),
   sourceCanvas: document.querySelector('#sourceCanvas'), processing: document.querySelector('#processing'),
@@ -45,7 +45,7 @@ const els = {
 
 const state = {
   image: null, fileName: '', cols: 48, rows: 48, colors: 16, cells: [], selectedColor: null,
-  view: 'codes', zoom: 1, generated: false, blankThreshold: 238
+  view: 'codes', zoom: 1, generated: false, compositionMode: 'all'
 };
 
 const patternCtx = els.patternCanvas.getContext('2d');
@@ -179,7 +179,7 @@ function samplePixels() {
   const pixels = [];
   for (let i = 0; i < data.length; i += 4) {
     const rgb = { r: data[i], g: data[i + 1], b: data[i + 2] };
-    const isBlank = data[i + 3] < 60 || (els.backgroundToggle.checked && rgb.r > state.blankThreshold && rgb.g > state.blankThreshold && rgb.b > state.blankThreshold);
+    const isBlank = data[i + 3] < 60;
     pixels.push(isBlank ? null : rgb);
   }
   return pixels;
@@ -207,43 +207,47 @@ function quantize(pixels) {
   });
 }
 
-function addSubjectOutline(cells) {
-  if (!els.outlineToggle.checked || state.cols < 3 || state.rows < 3) return cells;
-  const black = PALETTE_BY_CODE.get('H7');
-  if (!black) return cells;
+const EIGHT_NEIGHBORS = [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]];
 
-  const borderCounts = new Map();
-  const borderIndexes = [];
-  const addBorder = index => {
-    borderIndexes.push(index);
+function detectBorderBackground(cells) {
+  const borderIndexes = new Set();
+  const borderStats = new Map();
+  const record = (index, side) => {
+    borderIndexes.add(index);
     const code = cells[index]?.code;
-    if (code) borderCounts.set(code, (borderCounts.get(code) || 0) + 1);
+    if (!code) return;
+    const stats = borderStats.get(code) || { count: 0, sides: 0 };
+    stats.count += 1;
+    stats.sides |= side;
+    borderStats.set(code, stats);
   };
   for (let x = 0; x < state.cols; x++) {
-    addBorder(x);
-    if (state.rows > 1) addBorder((state.rows - 1) * state.cols + x);
+    record(x, 1);
+    if (state.rows > 1) record((state.rows - 1) * state.cols + x, 2);
   }
-  for (let y = 1; y < state.rows - 1; y++) {
-    addBorder(y * state.cols);
-    if (state.cols > 1) addBorder(y * state.cols + state.cols - 1);
+  for (let y = 0; y < state.rows; y++) {
+    record(y * state.cols, 4);
+    if (state.cols > 1) record(y * state.cols + state.cols - 1, 8);
   }
 
-  const rankedBorderColors = [...borderCounts.entries()].sort((a, b) => b[1] - a[1]);
-  const coloredBorderTotal = rankedBorderColors.reduce((sum, item) => sum + item[1], 0);
-  const backgroundCodes = new Set();
-  let covered = 0;
-  for (const [code, count] of rankedBorderColors) {
-    if (code === 'H7' || count < 2 || backgroundCodes.size >= 6) continue;
-    backgroundCodes.add(code);
-    covered += count;
-    if (covered >= coloredBorderTotal * .72 && backgroundCodes.size >= 2) break;
+  const sideCount = bits => (bits & 1 ? 1 : 0) + (bits & 2 ? 1 : 0) + (bits & 4 ? 1 : 0) + (bits & 8 ? 1 : 0);
+  const backgroundCodes = new Set(
+    [...borderStats.entries()]
+      .filter(([code, stats]) => code !== 'H7' && stats.count >= 2 && sideCount(stats.sides) >= 2)
+      .map(([code]) => code)
+  );
+  if (!backgroundCodes.size) {
+    [...borderStats.entries()]
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 2)
+      .forEach(([code]) => { if (code !== 'H7') backgroundCodes.add(code); });
   }
 
   const background = new Uint8Array(cells.length);
   const queue = [];
   const canBeBackground = index => !cells[index] || backgroundCodes.has(cells[index].code);
   borderIndexes.forEach(index => {
-    if (!background[index] && canBeBackground(index)) {
+    if (canBeBackground(index)) {
       background[index] = 1;
       queue.push(index);
     }
@@ -262,20 +266,64 @@ function addSubjectOutline(cells) {
       }
     });
   }
+  return background;
+}
 
-  const outlined = cells.slice();
-  const directions = [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]];
-  cells.forEach((color, index) => {
-    if (!color || background[index]) return;
-    const x = index % state.cols, y = Math.floor(index / state.cols);
-    const touchesBackground = directions.some(([dx, dy]) => {
-      const nx = x + dx, ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= state.cols || ny >= state.rows) return true;
-      return background[ny * state.cols + nx] === 1;
-    });
-    if (touchesBackground) outlined[index] = black;
+function extractSubjectMask(cells) {
+  const background = detectBorderBackground(cells);
+  const candidate = new Uint8Array(cells.length);
+  cells.forEach((color, index) => { if (color && !background[index]) candidate[index] = 1; });
+
+  const visited = new Uint8Array(cells.length);
+  const components = [];
+  candidate.forEach((value, start) => {
+    if (!value || visited[start]) return;
+    const component = [], queue = [start];
+    visited[start] = 1;
+    for (let head = 0; head < queue.length; head++) {
+      const index = queue[head], x = index % state.cols, y = Math.floor(index / state.cols);
+      component.push(index);
+      EIGHT_NEIGHBORS.forEach(([dx, dy]) => {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= state.cols || ny >= state.rows) return;
+        const next = ny * state.cols + nx;
+        if (candidate[next] && !visited[next]) {
+          visited[next] = 1;
+          queue.push(next);
+        }
+      });
+    }
+    components.push(component);
   });
-  return outlined;
+
+  const largest = Math.max(0, ...components.map(component => component.length));
+  const minimumComponent = Math.max(4, Math.ceil(largest * .08));
+  const subject = new Uint8Array(cells.length);
+  components.filter(component => component.length >= minimumComponent).forEach(component => {
+    component.forEach(index => { subject[index] = 1; });
+  });
+  return subject;
+}
+
+function outlineSubject(cells, subjectMask) {
+  const black = PALETTE_BY_CODE.get('H7');
+  return cells.map((color, index) => {
+    if (!subjectMask[index] || !color) return null;
+    const x = index % state.cols, y = Math.floor(index / state.cols);
+    const touchesOutside = EIGHT_NEIGHBORS.some(([dx, dy]) => {
+      const nx = x + dx, ny = y + dy;
+      return nx < 0 || ny < 0 || nx >= state.cols || ny >= state.rows || !subjectMask[ny * state.cols + nx];
+    });
+    return touchesOutside ? black : color;
+  });
+}
+
+function composePattern(pixels) {
+  if (state.compositionMode === 'all') return quantize(pixels);
+  const draft = quantize(pixels);
+  const subjectMask = extractSubjectMask(draft);
+  const subjectPixels = pixels.map((pixel, index) => subjectMask[index] ? pixel : null);
+  return outlineSubject(quantize(subjectPixels), subjectMask);
 }
 
 function generatePattern() {
@@ -283,7 +331,7 @@ function generatePattern() {
   els.processing.hidden = false;
   requestAnimationFrame(() => setTimeout(() => {
     const pixels = samplePixels();
-    state.cells = addSubjectOutline(quantize(pixels));
+    state.cells = composePattern(pixels);
     state.generated = true; state.selectedColor = null;
     els.emptyState.hidden = true; els.canvasWrap.hidden = false; els.resultSection.hidden = false;
     renderPattern(); renderLegend(); updateStats(); fitCanvas();
@@ -427,8 +475,11 @@ els.gridMinus.addEventListener('click', () => setGrid(state.cols - 1));
 els.gridPlus.addEventListener('click', () => setGrid(state.cols + 1));
 document.querySelectorAll('[data-preset]').forEach(button => button.addEventListener('click', () => setGrid({ simple: 32, balanced: 48, detail: 64 }[button.dataset.preset])));
 els.colorRange.addEventListener('input', event => { state.colors = Number(event.target.value); els.colorOutput.textContent = `${state.colors} 色`; setRangeFill(event.target); if (state.image) scheduleGenerate(); });
-els.backgroundToggle.addEventListener('change', () => state.image && scheduleGenerate());
-els.outlineToggle.addEventListener('change', () => state.image && scheduleGenerate());
+els.compositionModes.forEach(input => input.addEventListener('change', event => {
+  if (!event.target.checked) return;
+  state.compositionMode = event.target.value;
+  if (state.image) scheduleGenerate();
+}));
 els.generateButton.addEventListener('click', generatePattern);
 els.zoomOut.addEventListener('click', () => { state.zoom = Math.max(.35, state.zoom - .15); applyZoom(); });
 els.zoomIn.addEventListener('click', () => { state.zoom = Math.min(2.5, state.zoom + .15); applyZoom(); });
