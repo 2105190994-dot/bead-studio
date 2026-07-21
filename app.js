@@ -266,6 +266,7 @@ function quantize(pixels) {
   });
 }
 
+const FOUR_NEIGHBORS = [[0,-1],[-1,0],[1,0],[0,1]];
 const EIGHT_NEIGHBORS = [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]];
 
 function detectBorderBackground(cells) {
@@ -380,12 +381,126 @@ function outlineSubject(cells, subjectMask) {
   return outlined;
 }
 
+function outlineLightFeatures(cells, subjectMask) {
+  const black = PALETTE_BY_CODE.get('H7');
+  const lightMask = new Uint8Array(cells.length);
+  cells.forEach((color, index) => {
+    if (subjectMask[index] && color && luminance(color.rgb) >= 235) lightMask[index] = 1;
+  });
+
+  const visited = new Uint8Array(cells.length);
+  const components = [];
+  lightMask.forEach((isLight, start) => {
+    if (!isLight || visited[start]) return;
+    const component = [], queue = [start];
+    visited[start] = 1;
+    for (let head = 0; head < queue.length; head++) {
+      const index = queue[head], x = index % state.cols, y = Math.floor(index / state.cols);
+      component.push(index);
+      EIGHT_NEIGHBORS.forEach(([dx, dy]) => {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= state.cols || ny >= state.rows) return;
+        const next = ny * state.cols + nx;
+        if (lightMask[next] && !visited[next]) {
+          visited[next] = 1;
+          queue.push(next);
+        }
+      });
+    }
+    components.push(component);
+  });
+
+  const subjectSize = subjectMask.reduce((sum, value) => sum + value, 0);
+  const maximumFeatureSize = Math.max(4, Math.floor(subjectSize * .4));
+  const outlined = cells.slice();
+  components
+    .filter(component => component.length >= 2 && component.length <= maximumFeatureSize)
+    .forEach(component => {
+      const feature = new Set(component);
+      const pupilCandidates = component.length >= 6 ? cells.reduce((candidates, color, index) => {
+        if (!subjectMask[index] || !color || luminance(color.rgb) > 55 || feature.has(index)) return candidates;
+        const x = index % state.cols, y = Math.floor(index / state.cols);
+        const lightNeighbors = EIGHT_NEIGHBORS.filter(([dx, dy]) => {
+          const nx = x + dx, ny = y + dy;
+          return nx >= 0 && ny >= 0 && nx < state.cols && ny < state.rows && feature.has(ny * state.cols + nx);
+        }).length;
+        if (lightNeighbors >= 4) candidates.push(index);
+        return candidates;
+      }, []) : [];
+      const pupilSet = new Set(pupilCandidates);
+      const pupilVisited = new Set();
+      const pupils = [];
+      pupilCandidates.forEach(start => {
+        if (pupilVisited.has(start)) return;
+        const pupil = [], queue = [start];
+        pupilVisited.add(start);
+        for (let head = 0; head < queue.length; head++) {
+          const index = queue[head], x = index % state.cols, y = Math.floor(index / state.cols);
+          pupil.push(index);
+          EIGHT_NEIGHBORS.forEach(([dx, dy]) => {
+            const nx = x + dx, ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= state.cols || ny >= state.rows) return;
+            const next = ny * state.cols + nx;
+            if (pupilSet.has(next) && !pupilVisited.has(next)) {
+              pupilVisited.add(next);
+              queue.push(next);
+            }
+          });
+        }
+        pupils.push(pupil);
+      });
+
+      component.forEach(index => {
+        const x = index % state.cols, y = Math.floor(index / state.cols);
+        EIGHT_NEIGHBORS.forEach(([dx, dy]) => {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= state.cols || ny >= state.rows) return;
+          const next = ny * state.cols + nx;
+          if (subjectMask[next] && !feature.has(next) && outlined[next]) outlined[next] = black;
+        });
+      });
+
+      if (pupils.length >= 2) {
+        const centers = pupils.map(pupil => pupil.reduce((center, index) => ({
+          x: center.x + index % state.cols / pupil.length,
+          y: center.y + Math.floor(index / state.cols) / pupil.length
+        }), { x: 0, y: 0 })).sort((a, b) => a.x - b.x);
+        const owner = new Int16Array(cells.length);
+        owner.fill(-1);
+        component.forEach(index => {
+          const x = index % state.cols, y = Math.floor(index / state.cols);
+          let closest = 0, closestDistance = Infinity;
+          centers.forEach((center, centerIndex) => {
+            const distance = (x - center.x) ** 2 + (y - center.y) ** 2;
+            if (distance < closestDistance) { closest = centerIndex; closestDistance = distance; }
+          });
+          owner[index] = closest;
+        });
+        component.forEach(index => {
+          const x = index % state.cols, y = Math.floor(index / state.cols);
+          const distances = centers
+            .map(center => (x - center.x) ** 2 + (y - center.y) ** 2)
+            .sort((a, b) => a - b);
+          if (distances.length > 1 && Math.abs(distances[0] - distances[1]) <= 1) outlined[index] = black;
+          FOUR_NEIGHBORS.forEach(([dx, dy]) => {
+            const nx = x + dx, ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= state.cols || ny >= state.rows) return;
+            const next = ny * state.cols + nx;
+            if (feature.has(next) && owner[index] < owner[next]) outlined[index] = black;
+          });
+        });
+      }
+    });
+  return outlined;
+}
+
 function composePattern(pixels) {
   if (state.compositionMode === 'all') return quantize(pixels);
   const draft = quantize(pixels);
   const subjectMask = extractSubjectMask(draft);
   const subjectPixels = pixels.map((pixel, index) => subjectMask[index] ? pixel : null);
-  return outlineSubject(quantize(subjectPixels), subjectMask);
+  const detailedSubject = outlineLightFeatures(quantize(subjectPixels), subjectMask);
+  return outlineSubject(detailedSubject, subjectMask);
 }
 
 function generatePattern() {

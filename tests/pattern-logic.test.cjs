@@ -40,6 +40,37 @@ vm.runInContext(`${prefix}
     .flatMap(color => Array.from({ length: 4 }, () => ({ ...color.rgb })));
   paletteProbe.push({ r: 0, g: 0, b: 0 });
   const detailPalette = selectPalette(paletteProbe, 4);
+  const featureMask = new Uint8Array(49);
+  const featureCells = Array(49).fill(null);
+  for (let y = 1; y <= 5; y++) {
+    for (let x = 1; x <= 5; x++) {
+      const index = y * 7 + x;
+      featureMask[index] = 1;
+      featureCells[index] = PALETTE_BY_CODE.get('F1');
+    }
+  }
+  for (let y = 2; y <= 4; y++) {
+    for (let x = 2; x <= 4; x++) featureCells[y * 7 + x] = PALETTE_BY_CODE.get('H1');
+  }
+  featureCells[24] = PALETTE_BY_CODE.get('H7');
+  const outlinedFeature = outlineLightFeatures(featureCells, featureMask);
+  state.cols = 9;
+  state.rows = 7;
+  const twinEyeMask = new Uint8Array(63);
+  const twinEyeCells = Array(63).fill(null);
+  for (let y = 1; y <= 5; y++) {
+    for (let x = 1; x <= 7; x++) {
+      const index = y * 9 + x;
+      twinEyeMask[index] = 1;
+      twinEyeCells[index] = PALETTE_BY_CODE.get('F1');
+    }
+  }
+  for (let y = 2; y <= 4; y++) {
+    for (let x = 2; x <= 6; x++) twinEyeCells[y * 9 + x] = PALETTE_BY_CODE.get('H1');
+  }
+  twinEyeCells[3 * 9 + 3] = PALETTE_BY_CODE.get('H7');
+  twinEyeCells[3 * 9 + 5] = PALETTE_BY_CODE.get('H7');
+  const outlinedTwinEyes = outlineLightFeatures(twinEyeCells, twinEyeMask);
   globalThis.testResult = {
     paletteCount: PALETTE.length,
     firstCode: PALETTE[0].code,
@@ -54,7 +85,10 @@ vm.runInContext(`${prefix}
     subjectCenterCode: subjectOnly[24].code,
     subjectCorner: subjectOnly[0],
     detailPixelLuminance: luminance(detailPixel),
-    detailPaletteHasBlack: detailPalette.some(color => color.code === 'H7')
+    detailPaletteHasBlack: detailPalette.some(color => color.code === 'H7'),
+    featureWhiteCount: outlinedFeature.filter(color => color?.code === 'H1').length,
+    featureBlackCount: outlinedFeature.filter(color => color?.code === 'H7').length,
+    twinEyeSeparator: outlinedTwinEyes[3 * 9 + 4].code
   };
 `, context);
 
@@ -72,7 +106,10 @@ assert.deepEqual(JSON.parse(JSON.stringify(context.testResult)), {
   subjectCenterCode: 'G3',
   subjectCorner: null,
   detailPixelLuminance: 4,
-  detailPaletteHasBlack: true
+  detailPaletteHasBlack: true,
+  featureWhiteCount: 8,
+  featureBlackCount: 17,
+  twinEyeSeparator: 'H7'
 });
 assert.match(source, /if \(color && state\.view === 'codes'\)/, 'color codes must render for every non-empty cell');
 assert.doesNotMatch(source, /state\.view === 'codes' && cell >=/, 'mobile-sized cells must not hide their codes');
