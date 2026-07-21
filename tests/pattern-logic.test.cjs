@@ -71,6 +71,17 @@ vm.runInContext(`${prefix}
   twinEyeCells[3 * 9 + 3] = PALETTE_BY_CODE.get('H7');
   twinEyeCells[3 * 9 + 5] = PALETTE_BY_CODE.get('H7');
   const outlinedTwinEyes = outlineLightFeatures(twinEyeCells, twinEyeMask);
+  state.cols = 10;
+  state.rows = 10;
+  const flatLinePixels = Array.from({ length: 100 }, (_, index) => index % 10 === 5
+    ? ({ r: 5, g: 5, b: 5 })
+    : ({ r: 238, g: 232, b: 224 }));
+  const gradientPixels = Array.from({ length: 100 }, (_, index) => {
+    const x = index % 10, y = Math.floor(index / 10);
+    return { r: x * 25, g: y * 25, b: (x * 31 + y * 17) % 256 };
+  });
+  const flatDetection = analyzeTemplate(flatLinePixels);
+  const gradientDetection = analyzeTemplate(gradientPixels);
   globalThis.testResult = {
     paletteCount: PALETTE.length,
     firstCode: PALETTE[0].code,
@@ -88,7 +99,9 @@ vm.runInContext(`${prefix}
     detailPaletteHasBlack: detailPalette.some(color => color.code === 'H7'),
     featureWhiteCount: outlinedFeature.filter(color => color?.code === 'H1').length,
     featureBlackCount: outlinedFeature.filter(color => color?.code === 'H7').length,
-    twinEyeSeparator: outlinedTwinEyes[3 * 9 + 4].code
+    twinEyeSeparator: outlinedTwinEyes[3 * 9 + 4].code,
+    flatDetection: flatDetection.mode,
+    gradientDetection: gradientDetection.mode
   };
 `, context);
 
@@ -109,10 +122,14 @@ assert.deepEqual(JSON.parse(JSON.stringify(context.testResult)), {
   detailPaletteHasBlack: true,
   featureWhiteCount: 8,
   featureBlackCount: 17,
-  twinEyeSeparator: 'H7'
+  twinEyeSeparator: 'H7',
+  flatDetection: 'lineart',
+  gradientDetection: 'gradient'
 });
 assert.match(source, /if \(color && state\.view === 'codes'\)/, 'color codes must render for every non-empty cell');
 assert.doesNotMatch(source, /state\.view === 'codes' && cell >=/, 'mobile-sized cells must not hide their codes');
 assert.doesNotMatch(source, /backgroundToggle|outlineToggle|addSubjectOutline/, 'legacy independent toggles must stay removed');
+assert.match(source, /name="templateMode"/, 'automatic template mode selector must be wired');
+assert.match(source, /ERASE_TOOL/, 'manual editing must include a blank-cell eraser');
 
 console.log('pattern logic tests passed');

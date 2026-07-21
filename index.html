@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#ff6b6b" />
   <title>豆格工坊 · 图片转拼豆图纸</title>
-  <link rel="stylesheet" href="styles.css?v=7" />
+  <link rel="stylesheet" href="styles.css?v=8" />
 </head>
 <body>
   <div class="noise" aria-hidden="true"></div>
@@ -72,25 +72,42 @@
         </div>
 
         <div class="preset-group" role="group" aria-label="清晰度预设">
-          <button type="button" data-preset="simple"><b>简单</b><span>约 32 格</span></button>
-          <button type="button" class="active" data-preset="balanced"><b>推荐</b><span>约 48 格</span></button>
-          <button type="button" data-preset="detail"><b>精细</b><span>约 64 格</span></button>
+          <button type="button" data-preset="simple"><b>简单</b><span>约 48 格</span></button>
+          <button type="button" class="active" data-preset="balanced"><b>推荐</b><span>约 96 格</span></button>
+          <button type="button" data-preset="detail"><b>精细</b><span>最长边 200 格</span></button>
         </div>
 
         <div class="setting-block">
           <div class="setting-label">
             <label for="gridRange">横向格数</label>
-            <div class="number-stepper"><button id="gridMinus" type="button" aria-label="减少格数">−</button><input id="gridNumber" type="number" min="12" max="100" value="48" /><button id="gridPlus" type="button" aria-label="增加格数">＋</button></div>
+            <div class="number-stepper"><button id="gridMinus" type="button" aria-label="减少格数">−</button><input id="gridNumber" type="number" min="24" max="200" value="96" /><button id="gridPlus" type="button" aria-label="增加格数">＋</button></div>
           </div>
-          <input class="range coral" id="gridRange" type="range" min="12" max="100" value="48" />
+          <input class="range coral" id="gridRange" type="range" min="24" max="200" value="96" />
           <div class="range-hints"><span>更省豆</span><span>更清晰</span></div>
         </div>
 
         <div class="setting-block">
           <div class="setting-label"><label for="colorRange">颜色数量 · MARD 221</label><output id="colorOutput">16 色</output></div>
-          <input class="range mint-range" id="colorRange" type="range" min="4" max="32" step="1" value="16" />
+          <input class="range mint-range" id="colorRange" type="range" min="4" max="60" step="1" value="16" />
           <div class="range-hints"><span>更好备料</span><span>更接近原图</span></div>
         </div>
+
+        <fieldset class="template-picker">
+          <legend>图纸模板</legend>
+          <label>
+            <input type="radio" name="templateMode" value="auto" checked />
+            <span><b>自动识别</b><small>先分析图片再选择</small></span>
+          </label>
+          <label>
+            <input type="radio" name="templateMode" value="lineart" />
+            <span><b>清晰线稿</b><small>少色 · 强结构</small></span>
+          </label>
+          <label>
+            <input type="radio" name="templateMode" value="gradient" />
+            <span><b>高清渐变</b><small>多色 · 保留明暗</small></span>
+          </label>
+          <p id="templateDetection" class="template-detection">上传图片后自动分析</p>
+        </fieldset>
 
         <fieldset class="composition-picker">
           <legend>画面范围</legend>
@@ -267,6 +284,6 @@
   <footer><span>豆格工坊 · 为每一颗小豆子找到位置</span><span>在本地运行，不上传你的图片</span></footer>
   <canvas id="sourceCanvas" hidden></canvas>
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
-  <script src="app.js?v=7"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>

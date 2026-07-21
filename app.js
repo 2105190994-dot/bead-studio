@@ -31,6 +31,8 @@ const els = {
   gridPlus: document.querySelector('#gridPlus'), colorRange: document.querySelector('#colorRange'),
   colorOutput: document.querySelector('#colorOutput'),
   compositionModes: [...document.querySelectorAll('input[name="compositionMode"]')],
+  templateModes: [...document.querySelectorAll('input[name="templateMode"]')],
+  templateDetection: document.querySelector('#templateDetection'),
   generateButton: document.querySelector('#generateButton'), emptyState: document.querySelector('#emptyState'),
   canvasWrap: document.querySelector('#canvasWrap'), patternCanvas: document.querySelector('#patternCanvas'),
   sourceCanvas: document.querySelector('#sourceCanvas'), processing: document.querySelector('#processing'),
@@ -44,9 +46,13 @@ const els = {
 };
 
 const state = {
-  image: null, fileName: '', cols: 48, rows: 48, colors: 16, cells: [], selectedColor: null,
-  view: 'codes', zoom: 1, generated: false, compositionMode: 'all'
+  image: null, fileName: '', cols: 96, rows: 96, colors: 16, cells: [], selectedColor: null,
+  view: 'codes', zoom: 1, generated: false, compositionMode: 'all',
+  templateMode: 'auto', detectedTemplate: 'lineart', detectionMetrics: null,
+  autoConfigured: false, gridCustomized: false, colorsCustomized: false
 };
+
+const ERASE_TOOL = { code: '__erase__', name: '空白格' };
 
 const patternCtx = els.patternCanvas.getContext('2d');
 const sourceCtx = els.sourceCanvas.getContext('2d', { willReadFrequently: true });
@@ -89,12 +95,12 @@ function setRangeFill(input) {
 }
 
 function setGrid(value, regenerate = true) {
-  state.cols = Math.max(12, Math.min(100, Number(value) || 48));
+  state.cols = Math.max(24, Math.min(200, Number(value) || 96));
   els.gridRange.value = state.cols;
   els.gridNumber.value = state.cols;
   setRangeFill(els.gridRange);
   document.querySelectorAll('[data-preset]').forEach(button => {
-    const targets = { simple: 32, balanced: 48, detail: 64 };
+    const targets = { simple: 48, balanced: 96, detail: 200 };
     button.classList.toggle('active', targets[button.dataset.preset] === state.cols);
   });
   updateEstimatedSize();
@@ -126,8 +132,12 @@ function loadFile(file) {
       els.fileMeta.textContent = `${image.naturalWidth} × ${image.naturalHeight}`;
       els.uploadZone.hidden = true;
       els.fileRow.hidden = false;
-      const suggested = autoGridSize(image.naturalWidth, image.naturalHeight);
-      setGrid(suggested, false);
+      state.autoConfigured = false;
+      state.gridCustomized = false;
+      state.colorsCustomized = false;
+      state.detectionMetrics = null;
+      els.templateDetection.textContent = '正在分析图片结构…';
+      setGrid(64, false);
       generatePattern();
     };
     image.src = event.target.result;
@@ -136,10 +146,8 @@ function loadFile(file) {
 }
 
 function autoGridSize(width, height) {
-  const longSide = Math.max(width, height);
-  const shortSide = Math.min(width, height);
-  const detailBias = Math.min(8, Math.round((longSide / Math.max(1, shortSide) - 1) * 4));
-  return Math.max(36, Math.min(56, 48 - detailBias));
+  const longSide = 96;
+  return width >= height ? longSide : Math.max(24, Math.round(longSide * width / height));
 }
 
 function createDemo() {
@@ -162,7 +170,9 @@ function createDemo() {
     state.image = image; state.fileName = '柯基示例.png';
     els.fileThumb.src = canvas.toDataURL('image/png');
     els.fileName.textContent = state.fileName; els.fileMeta.textContent = '720 × 640';
-    els.uploadZone.hidden = true; els.fileRow.hidden = false; setGrid(48, false); generatePattern();
+    els.uploadZone.hidden = true; els.fileRow.hidden = false;
+    state.autoConfigured = false; state.gridCustomized = false; state.colorsCustomized = false;
+    setGrid(64, false); generatePattern();
   };
   image.src = canvas.toDataURL('image/png');
 }
@@ -192,7 +202,7 @@ function representativePixel(samples) {
   return average;
 }
 
-function samplePixels() {
+function samplePixels(detailBias = true) {
   const ratio = state.image.naturalHeight / state.image.naturalWidth;
   state.rows = Math.max(1, Math.round(state.cols * ratio));
   const sampleWidth = state.cols * DETAIL_SAMPLE_SCALE;
@@ -215,10 +225,103 @@ function samplePixels() {
           if (data[index + 3] >= 60) samples.push({ r: data[index], g: data[index + 1], b: data[index + 2] });
         }
       }
-      pixels.push(representativePixel(samples));
+      pixels.push(detailBias ? representativePixel(samples) : (samples.length ? averageRgb(samples) : null));
     }
   }
   return pixels;
+}
+
+function analyzeTemplate(pixels) {
+  const valid = pixels.filter(Boolean);
+  if (!valid.length) return { mode: 'lineart', confidence: 1, complexity: 0, flatness: 1, edgeDensity: 0 };
+  const buckets = new Map();
+  valid.forEach(color => {
+    const key = `${color.r >> 5}-${color.g >> 5}-${color.b >> 5}`;
+    buckets.set(key, (buckets.get(key) || 0) + 1);
+  });
+  let flat = 0, edges = 0, comparisons = 0;
+  const compare = (a, b) => {
+    if (!a || !b) return;
+    const distance = Math.sqrt((a.r - b.r) ** 2 + (a.g - b.g) ** 2 + (a.b - b.b) ** 2);
+    if (distance < 28) flat += 1;
+    if (distance > 85) edges += 1;
+    comparisons += 1;
+  };
+  pixels.forEach((pixel, index) => {
+    const x = index % state.cols, y = Math.floor(index / state.cols);
+    if (x + 1 < state.cols) compare(pixel, pixels[index + 1]);
+    if (y + 1 < state.rows) compare(pixel, pixels[index + state.cols]);
+  });
+  const sortedBucketCounts = [...buckets.values()].sort((a, b) => b - a);
+  const dominantTarget = valid.length * .9;
+  let dominantBucketCount = 0, dominantTotal = 0;
+  for (const count of sortedBucketCounts) {
+    dominantTotal += count;
+    dominantBucketCount += 1;
+    if (dominantTotal >= dominantTarget) break;
+  }
+  const complexity = Math.min(1, dominantBucketCount / 48);
+  const flatness = comparisons ? flat / comparisons : 1;
+  const edgeDensity = comparisons ? edges / comparisons : 0;
+  const clamp01 = value => Math.max(0, Math.min(1, value));
+  // Flat cartoons have large runs of nearly identical pixels. Existing bead/pixel
+  // templates contain many grid edges instead, so a second hard-edge signal is
+  // needed to recognise them without mistaking continuous photo gradients for art.
+  const flatArtSignal = clamp01((flatness - .72) / .14);
+  const hardEdgeSignal = clamp01((edgeDensity - .11) / .08);
+  const compactPaletteSignal = clamp01((22 - dominantBucketCount) / 14);
+  const lineSignal = Math.max(flatArtSignal, hardEdgeSignal, compactPaletteSignal * .72);
+  const mode = lineSignal >= .5 ? 'lineart' : 'gradient';
+  const confidence = Math.min(.97, .64 + Math.abs(lineSignal - .5) * .66);
+  return {
+    mode, confidence, complexity, flatness, edgeDensity,
+    bucketCount: buckets.size, dominantBucketCount
+  };
+}
+
+function templateLabel(mode) { return mode === 'gradient' ? '高清渐变' : '清晰线稿'; }
+
+function columnsForLongSide(longSide) {
+  const width = state.image?.naturalWidth || 1, height = state.image?.naturalHeight || 1;
+  return width >= height ? longSide : Math.max(24, Math.round(longSide * width / height));
+}
+
+function recommendedTemplateSettings(mode) {
+  const targetLongSide = mode === 'gradient' ? 200 : 112;
+  return { cols: Math.min(200, columnsForLongSide(targetLongSide)), colors: mode === 'gradient' ? 60 : 15 };
+}
+
+function setColorCount(value) {
+  state.colors = Math.max(4, Math.min(60, Number(value) || 16));
+  els.colorRange.value = state.colors;
+  els.colorOutput.textContent = `${state.colors} 色`;
+  setRangeFill(els.colorRange);
+}
+
+function effectiveTemplate() {
+  return state.templateMode === 'auto' ? state.detectedTemplate : state.templateMode;
+}
+
+function updateTemplateDetection() {
+  if (!state.detectionMetrics) {
+    els.templateDetection.textContent = '上传图片后自动分析';
+    return;
+  }
+  const detected = templateLabel(state.detectedTemplate);
+  const current = templateLabel(effectiveTemplate());
+  const confidence = Math.round(state.detectionMetrics.confidence * 100);
+  if (els.templateDetection.dataset) {
+    els.templateDetection.dataset.metrics = JSON.stringify({
+      complexity: state.detectionMetrics.complexity,
+      flatness: state.detectionMetrics.flatness,
+      edgeDensity: state.detectionMetrics.edgeDensity,
+      bucketCount: state.detectionMetrics.bucketCount,
+      dominantBucketCount: state.detectionMetrics.dominantBucketCount
+    });
+  }
+  els.templateDetection.textContent = state.templateMode === 'auto'
+    ? `自动识别：${detected} · 置信度 ${confidence}% · 可手动切换`
+    : `自动建议：${detected} · 当前手动使用：${current}`;
 }
 
 function selectPalette(pixels, count) {
@@ -258,12 +361,99 @@ function selectPalette(pixels, count) {
   return [...new Map(selected.map(c => [c.code, c])).values()];
 }
 
-function quantize(pixels) {
-  const selectedPalette = selectPalette(pixels, state.colors);
+function quantize(pixels, colorCount = state.colors) {
+  const selectedPalette = selectPalette(pixels, colorCount);
   return pixels.map(pixel => {
     if (!pixel) return null;
     return nearestPaletteColor(pixel, selectedPalette);
   });
+}
+
+function quantizeGradient(pixels) {
+  const selectedPalette = selectPalette(pixels, state.colors);
+  const work = pixels.map(pixel => pixel ? { ...pixel } : null);
+  const result = Array(pixels.length).fill(null);
+  const diffuse = (x, y, error, weight) => {
+    if (x < 0 || y < 0 || x >= state.cols || y >= state.rows) return;
+    const index = y * state.cols + x;
+    if (!work[index]) return;
+    work[index].r = Math.max(0, Math.min(255, work[index].r + error.r * weight * .68));
+    work[index].g = Math.max(0, Math.min(255, work[index].g + error.g * weight * .68));
+    work[index].b = Math.max(0, Math.min(255, work[index].b + error.b * weight * .68));
+  };
+  for (let y = 0; y < state.rows; y++) {
+    for (let x = 0; x < state.cols; x++) {
+      const index = y * state.cols + x, pixel = work[index];
+      if (!pixel) continue;
+      const color = nearestPaletteColor(pixel, selectedPalette);
+      result[index] = color;
+      const error = { r: pixel.r - color.rgb.r, g: pixel.g - color.rgb.g, b: pixel.b - color.rgb.b };
+      diffuse(x + 1, y, error, 7 / 16);
+      diffuse(x - 1, y + 1, error, 3 / 16);
+      diffuse(x, y + 1, error, 5 / 16);
+      diffuse(x + 1, y + 1, error, 1 / 16);
+    }
+  }
+  return result;
+}
+
+function mergeSmallColorRegions(cells, minimumSize = 2) {
+  let current = cells.slice();
+  for (let pass = 0; pass < 3; pass++) {
+    const visited = new Uint8Array(current.length);
+    let merged = 0;
+    current.forEach((color, start) => {
+      if (!color || visited[start]) return;
+      const component = [], queue = [start];
+      visited[start] = 1;
+      for (let head = 0; head < queue.length; head++) {
+        const index = queue[head], x = index % state.cols, y = Math.floor(index / state.cols);
+        component.push(index);
+        FOUR_NEIGHBORS.forEach(([dx, dy]) => {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= state.cols || ny >= state.rows) return;
+          const next = ny * state.cols + nx;
+          if (!visited[next] && current[next]?.code === color.code) {
+            visited[next] = 1;
+            queue.push(next);
+          }
+        });
+      }
+      if (component.length >= minimumSize || color.code === 'H7') return;
+      const neighbors = new Map();
+      component.forEach(index => {
+        const x = index % state.cols, y = Math.floor(index / state.cols);
+        FOUR_NEIGHBORS.forEach(([dx, dy]) => {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= state.cols || ny >= state.rows) return;
+          const neighbor = current[ny * state.cols + nx];
+          if (neighbor && neighbor.code !== color.code) {
+            const item = neighbors.get(neighbor.code) || { color: neighbor, count: 0 };
+            item.count += 1;
+            neighbors.set(neighbor.code, item);
+          }
+        });
+      });
+      const replacement = [...neighbors.values()].sort((a, b) => b.count - a.count)[0]?.color;
+      if (!replacement) return;
+      component.forEach(index => { current[index] = replacement; });
+      merged += 1;
+    });
+    if (!merged) break;
+  }
+  return current;
+}
+
+function quantizeLineart(pixels) {
+  const whiteInk = PALETTE_BY_CODE.get('H2');
+  const blackInk = PALETTE_BY_CODE.get('H7');
+  const cells = quantize(pixels).map((color, index) => {
+    if (!color) return null;
+    if (pixels[index] && luminance(pixels[index]) < 42) return blackInk;
+    if (luminance(color.rgb) > 247) return whiteInk;
+    return color;
+  });
+  return mergeSmallColorRegions(cells, 2);
 }
 
 const FOUR_NEIGHBORS = [[0,-1],[-1,0],[1,0],[0,1]];
@@ -494,12 +684,19 @@ function outlineLightFeatures(cells, subjectMask) {
   return outlined;
 }
 
-function composePattern(pixels) {
-  if (state.compositionMode === 'all') return quantize(pixels);
-  const draft = quantize(pixels);
+function composePattern(pixels, template = effectiveTemplate()) {
+  if (template === 'gradient') {
+    if (state.compositionMode === 'all') return quantizeGradient(pixels);
+    const subjectMask = extractSubjectMask(quantize(pixels, Math.min(18, state.colors)));
+    const subjectPixels = pixels.map((pixel, index) => subjectMask[index] ? pixel : null);
+    return quantizeGradient(subjectPixels);
+  }
+
+  const draft = quantizeLineart(pixels);
+  if (state.compositionMode === 'all') return draft;
   const subjectMask = extractSubjectMask(draft);
   const subjectPixels = pixels.map((pixel, index) => subjectMask[index] ? pixel : null);
-  const detailedSubject = outlineLightFeatures(quantize(subjectPixels), subjectMask);
+  const detailedSubject = outlineLightFeatures(quantizeLineart(subjectPixels), subjectMask);
   return outlineSubject(detailedSubject, subjectMask);
 }
 
@@ -507,8 +704,23 @@ function generatePattern() {
   if (!state.image) { els.fileInput.click(); return; }
   els.processing.hidden = false;
   requestAnimationFrame(() => setTimeout(() => {
-    const pixels = samplePixels();
-    state.cells = composePattern(pixels);
+    let pixels = samplePixels(true);
+    if (!state.detectionMetrics || !state.autoConfigured) {
+      state.detectionMetrics = analyzeTemplate(pixels);
+      state.detectedTemplate = state.detectionMetrics.mode;
+    }
+    const template = effectiveTemplate();
+    if (!state.autoConfigured) {
+      const defaults = recommendedTemplateSettings(template);
+      if (!state.gridCustomized) setGrid(defaults.cols, false);
+      if (!state.colorsCustomized) setColorCount(defaults.colors);
+      state.autoConfigured = true;
+      pixels = samplePixels(template === 'lineart');
+    } else if (template === 'gradient') {
+      pixels = samplePixels(false);
+    }
+    updateTemplateDetection();
+    state.cells = composePattern(pixels, template);
     state.generated = true; state.selectedColor = null;
     els.emptyState.hidden = true; els.canvasWrap.hidden = false; els.resultSection.hidden = false;
     renderPattern(); renderLegend(); updateStats(); fitCanvas();
@@ -528,6 +740,8 @@ function renderPattern(forExport = false) {
   const metrics = canvasMetrics(forExport);
   const dpr = forExport ? 1 : Math.min(2, window.devicePixelRatio || 1);
   els.patternCanvas.width = metrics.width * dpr; els.patternCanvas.height = metrics.height * dpr;
+  els.patternCanvas.dataset.baseWidth = metrics.width;
+  els.patternCanvas.dataset.baseHeight = metrics.height;
   els.patternCanvas.style.width = `${metrics.width}px`; els.patternCanvas.style.height = `${metrics.height}px`;
   patternCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   patternCtx.clearRect(0, 0, metrics.width, metrics.height);
@@ -585,7 +799,11 @@ function countsByColor() {
 
 function renderLegend() {
   const counts = countsByColor();
-  els.legendGrid.innerHTML = counts.map(({ color, count }) => {
+  const eraserSelected = state.selectedColor?.code === ERASE_TOOL.code;
+  const eraser = `<button type="button" class="legend-card eraser-card${eraserSelected ? ' selected' : ''}" data-code="${ERASE_TOOL.code}">
+    <span class="swatch eraser-swatch">×</span><div><strong>空白格 / 橡皮</strong><small>背景板，不计入豆数</small></div><b>工具</b>
+  </button>`;
+  els.legendGrid.innerHTML = eraser + counts.map(({ color, count }) => {
     const text = luminance(color.rgb) > 145 ? '#35322f' : '#fff';
     return `<button type="button" class="legend-card${state.selectedColor?.code === color.code ? ' selected' : ''}" data-code="${color.code}">
       <span class="swatch" style="background:${color.hex};--text:${text}">${color.code}</span>
@@ -593,7 +811,7 @@ function renderLegend() {
     </button>`;
   }).join('');
   els.legendGrid.querySelectorAll('.legend-card').forEach(card => card.addEventListener('click', () => {
-    state.selectedColor = PALETTE_BY_CODE.get(card.dataset.code);
+    state.selectedColor = card.dataset.code === ERASE_TOOL.code ? ERASE_TOOL : PALETTE_BY_CODE.get(card.dataset.code);
     renderLegend();
   }));
 }
@@ -610,13 +828,21 @@ function updateStats() {
 function fitCanvas() {
   state.zoom = 1; applyZoom();
   requestAnimationFrame(() => {
-    const canvasWidth = els.patternCanvas.getBoundingClientRect().width;
+    const canvasWidth = Number(els.patternCanvas.dataset.baseWidth) || els.patternCanvas.getBoundingClientRect().width;
     const available = els.canvasStage.clientWidth - 58;
-    if (canvasWidth > available) state.zoom = Math.max(.35, available / canvasWidth);
+    if (canvasWidth > available) state.zoom = Math.max(.1, available / canvasWidth);
     applyZoom();
+    els.canvasStage.scrollTo({ left: 0, top: 0 });
   });
 }
-function applyZoom() { els.canvasWrap.style.transform = `scale(${state.zoom})`; els.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`; }
+function applyZoom() {
+  const baseWidth = Number(els.patternCanvas.dataset.baseWidth) || els.patternCanvas.width;
+  const baseHeight = Number(els.patternCanvas.dataset.baseHeight) || els.patternCanvas.height;
+  els.patternCanvas.style.width = `${Math.round(baseWidth * state.zoom)}px`;
+  els.patternCanvas.style.height = `${Math.round(baseHeight * state.zoom)}px`;
+  els.canvasWrap.style.transform = 'none';
+  els.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
+}
 
 function exportPng() {
   if (!state.generated) { els.fileInput.click(); return; }
@@ -635,7 +861,7 @@ function editCell(event) {
   const y = (event.clientY - rect.top) / rect.height * metrics.height - metrics.margin;
   const col = Math.floor(x / metrics.cell), row = Math.floor(y / metrics.cell);
   if (col < 0 || row < 0 || col >= state.cols || row >= state.rows) return;
-  state.cells[row * state.cols + col] = state.selectedColor;
+  state.cells[row * state.cols + col] = state.selectedColor.code === ERASE_TOOL.code ? null : state.selectedColor;
   renderPattern(); renderLegend(); updateStats();
 }
 
@@ -646,19 +872,39 @@ els.demoButton.addEventListener('click', createDemo);
 ['dragenter', 'dragover'].forEach(type => els.uploadZone.addEventListener(type, event => { event.preventDefault(); els.uploadZone.classList.add('dragging'); }));
 ['dragleave', 'drop'].forEach(type => els.uploadZone.addEventListener(type, event => { event.preventDefault(); els.uploadZone.classList.remove('dragging'); }));
 els.uploadZone.addEventListener('drop', event => loadFile(event.dataTransfer.files[0]));
-els.gridRange.addEventListener('input', event => setGrid(event.target.value));
-els.gridNumber.addEventListener('change', event => setGrid(event.target.value));
-els.gridMinus.addEventListener('click', () => setGrid(state.cols - 1));
-els.gridPlus.addEventListener('click', () => setGrid(state.cols + 1));
-document.querySelectorAll('[data-preset]').forEach(button => button.addEventListener('click', () => setGrid({ simple: 32, balanced: 48, detail: 64 }[button.dataset.preset])));
-els.colorRange.addEventListener('input', event => { state.colors = Number(event.target.value); els.colorOutput.textContent = `${state.colors} 色`; setRangeFill(event.target); if (state.image) scheduleGenerate(); });
+els.gridRange.addEventListener('input', event => { state.gridCustomized = true; setGrid(event.target.value); });
+els.gridNumber.addEventListener('change', event => { state.gridCustomized = true; setGrid(event.target.value); });
+els.gridMinus.addEventListener('click', () => { state.gridCustomized = true; setGrid(state.cols - 1); });
+els.gridPlus.addEventListener('click', () => { state.gridCustomized = true; setGrid(state.cols + 1); });
+document.querySelectorAll('[data-preset]').forEach(button => button.addEventListener('click', () => {
+  state.gridCustomized = true;
+  const target = button.dataset.preset === 'detail' ? columnsForLongSide(200) : { simple: 48, balanced: 96 }[button.dataset.preset];
+  setGrid(target);
+}));
+els.colorRange.addEventListener('input', event => {
+  state.colorsCustomized = true;
+  setColorCount(event.target.value);
+  if (state.image) scheduleGenerate();
+});
+els.templateModes.forEach(input => input.addEventListener('change', event => {
+  if (!event.target.checked) return;
+  state.templateMode = event.target.value;
+  if (state.image) {
+    const defaults = recommendedTemplateSettings(effectiveTemplate());
+    if (!state.gridCustomized) setGrid(defaults.cols, false);
+    if (!state.colorsCustomized) setColorCount(defaults.colors);
+    state.autoConfigured = true;
+    updateTemplateDetection();
+    scheduleGenerate();
+  }
+}));
 els.compositionModes.forEach(input => input.addEventListener('change', event => {
   if (!event.target.checked) return;
   state.compositionMode = event.target.value;
   if (state.image) scheduleGenerate();
 }));
 els.generateButton.addEventListener('click', generatePattern);
-els.zoomOut.addEventListener('click', () => { state.zoom = Math.max(.35, state.zoom - .15); applyZoom(); });
+els.zoomOut.addEventListener('click', () => { state.zoom = Math.max(.1, state.zoom - .15); applyZoom(); });
 els.zoomIn.addEventListener('click', () => { state.zoom = Math.min(2.5, state.zoom + .15); applyZoom(); });
 els.fitButton.addEventListener('click', fitCanvas);
 document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => {
