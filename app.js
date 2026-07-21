@@ -167,20 +167,56 @@ function createDemo() {
   image.src = canvas.toDataURL('image/png');
 }
 
+const DETAIL_SAMPLE_SCALE = 6;
+
+function averageRgb(samples) {
+  const totals = samples.reduce((sum, color) => ({
+    r: sum.r + color.r, g: sum.g + color.g, b: sum.b + color.b
+  }), { r: 0, g: 0, b: 0 });
+  return {
+    r: Math.round(totals.r / samples.length),
+    g: Math.round(totals.g / samples.length),
+    b: Math.round(totals.b / samples.length)
+  };
+}
+
+function representativePixel(samples) {
+  if (!samples.length) return null;
+  const average = averageRgb(samples);
+  const averageLight = luminance(average);
+  const minimumDetailSamples = Math.max(2, Math.ceil(samples.length * .055));
+  const dark = samples.filter(color => luminance(color) <= Math.min(82, averageLight - 62));
+  if (dark.length >= minimumDetailSamples) return averageRgb(dark);
+  const light = samples.filter(color => luminance(color) >= Math.max(238, averageLight + 48));
+  if (light.length >= Math.max(3, Math.ceil(samples.length * .18))) return averageRgb(light);
+  return average;
+}
+
 function samplePixels() {
   const ratio = state.image.naturalHeight / state.image.naturalWidth;
   state.rows = Math.max(1, Math.round(state.cols * ratio));
-  els.sourceCanvas.width = state.cols; els.sourceCanvas.height = state.rows;
-  sourceCtx.clearRect(0, 0, state.cols, state.rows);
+  const sampleWidth = state.cols * DETAIL_SAMPLE_SCALE;
+  const sampleHeight = state.rows * DETAIL_SAMPLE_SCALE;
+  els.sourceCanvas.width = sampleWidth; els.sourceCanvas.height = sampleHeight;
+  sourceCtx.clearRect(0, 0, sampleWidth, sampleHeight);
   sourceCtx.imageSmoothingEnabled = true;
   sourceCtx.imageSmoothingQuality = 'high';
-  sourceCtx.drawImage(state.image, 0, 0, state.cols, state.rows);
-  const data = sourceCtx.getImageData(0, 0, state.cols, state.rows).data;
+  sourceCtx.drawImage(state.image, 0, 0, sampleWidth, sampleHeight);
+  const data = sourceCtx.getImageData(0, 0, sampleWidth, sampleHeight).data;
   const pixels = [];
-  for (let i = 0; i < data.length; i += 4) {
-    const rgb = { r: data[i], g: data[i + 1], b: data[i + 2] };
-    const isBlank = data[i + 3] < 60;
-    pixels.push(isBlank ? null : rgb);
+  for (let y = 0; y < state.rows; y++) {
+    for (let x = 0; x < state.cols; x++) {
+      const samples = [];
+      for (let sy = 0; sy < DETAIL_SAMPLE_SCALE; sy++) {
+        for (let sx = 0; sx < DETAIL_SAMPLE_SCALE; sx++) {
+          const sampleX = x * DETAIL_SAMPLE_SCALE + sx;
+          const sampleY = y * DETAIL_SAMPLE_SCALE + sy;
+          const index = (sampleY * sampleWidth + sampleX) * 4;
+          if (data[index + 3] >= 60) samples.push({ r: data[index], g: data[index + 1], b: data[index + 2] });
+        }
+      }
+      pixels.push(representativePixel(samples));
+    }
   }
   return pixels;
 }
@@ -193,9 +229,32 @@ function selectPalette(pixels, count) {
     frequencies.set(nearest.code, frequencies.get(nearest.code) + 1);
   });
   const ranked = [...PALETTE].sort((a, b) => frequencies.get(b.code) - frequencies.get(a.code));
-  const selected = ranked.slice(0, Math.min(count, ranked.filter(c => frequencies.get(c.code) > 0).length || 1));
-  const essentials = ranked.filter(c => frequencies.get(c.code) > 0 && (luminance(c.rgb) < 45 || luminance(c.rgb) > 242));
-  essentials.forEach(color => { if (!selected.includes(color) && selected.length) selected[selected.length - 1] = color; });
+  const used = ranked.filter(color => frequencies.get(color.code) > 0);
+  const selected = used.slice(0, Math.min(count, used.length || 1));
+  if (!selected.length) selected.push(ranked[0]);
+  const pinned = new Set();
+  const pinColor = (code, needed) => {
+    if (!needed) return;
+    const color = PALETTE_BY_CODE.get(code);
+    const existing = selected.find(item => item.code === code);
+    if (existing) { pinned.add(code); return; }
+    if (selected.length < count) selected.push(color);
+    else {
+      let replaceIndex = -1;
+      let lowestFrequency = Infinity;
+      selected.forEach((item, index) => {
+        const frequency = frequencies.get(item.code) || 0;
+        if (!pinned.has(item.code) && frequency < lowestFrequency) {
+          lowestFrequency = frequency;
+          replaceIndex = index;
+        }
+      });
+      if (replaceIndex >= 0) selected[replaceIndex] = color;
+    }
+    pinned.add(code);
+  };
+  pinColor('H7', pixels.some(pixel => pixel && luminance(pixel) < 82));
+  pinColor('H1', pixels.some(pixel => pixel && luminance(pixel) > 245));
   return [...new Map(selected.map(c => [c.code, c])).values()];
 }
 
@@ -307,15 +366,18 @@ function extractSubjectMask(cells) {
 
 function outlineSubject(cells, subjectMask) {
   const black = PALETTE_BY_CODE.get('H7');
-  return cells.map((color, index) => {
-    if (!subjectMask[index] || !color) return null;
+  const outlined = cells.map((color, index) => subjectMask[index] ? color : null);
+  subjectMask.forEach((isSubject, index) => {
+    if (!isSubject) return;
     const x = index % state.cols, y = Math.floor(index / state.cols);
-    const touchesOutside = EIGHT_NEIGHBORS.some(([dx, dy]) => {
+    EIGHT_NEIGHBORS.forEach(([dx, dy]) => {
       const nx = x + dx, ny = y + dy;
-      return nx < 0 || ny < 0 || nx >= state.cols || ny >= state.rows || !subjectMask[ny * state.cols + nx];
+      if (nx < 0 || ny < 0 || nx >= state.cols || ny >= state.rows) return;
+      const next = ny * state.cols + nx;
+      if (!subjectMask[next]) outlined[next] = black;
     });
-    return touchesOutside ? black : color;
   });
+  return outlined;
 }
 
 function composePattern(pixels) {
