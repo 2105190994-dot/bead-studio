@@ -30,6 +30,16 @@ vm.runInContext(`${prefix}
   const completeImage = composePattern(testPixels);
   state.compositionMode = 'subject';
   const subjectOnly = composePattern(testPixels);
+  const detailPixel = representativePixel([
+    ...Array.from({ length: 14 }, () => ({ r: 248, g: 248, b: 248 })),
+    { r: 0, g: 0, b: 0 }, { r: 8, g: 8, b: 8 }
+  ]);
+  const paletteProbe = PALETTE
+    .filter(color => color.code !== 'H1' && color.code !== 'H7' && luminance(color.rgb) > 90 && luminance(color.rgb) < 235)
+    .slice(0, 20)
+    .flatMap(color => Array.from({ length: 4 }, () => ({ ...color.rgb })));
+  paletteProbe.push({ r: 0, g: 0, b: 0 });
+  const detailPalette = selectPalette(paletteProbe, 4);
   globalThis.testResult = {
     paletteCount: PALETTE.length,
     firstCode: PALETTE[0].code,
@@ -40,8 +50,11 @@ vm.runInContext(`${prefix}
     completeCornerCode: completeImage[0].code,
     subjectBlackCount: subjectOnly.filter(color => color?.code === 'H7').length,
     subjectBlankCount: subjectOnly.filter(color => color === null).length,
+    subjectColorCount: subjectOnly.filter(color => color && color.code !== 'H7').length,
     subjectCenterCode: subjectOnly[24].code,
-    subjectCorner: subjectOnly[0]
+    subjectCorner: subjectOnly[0],
+    detailPixelLuminance: luminance(detailPixel),
+    detailPaletteHasBlack: detailPalette.some(color => color.code === 'H7')
   };
 `, context);
 
@@ -53,10 +66,13 @@ assert.deepEqual(JSON.parse(JSON.stringify(context.testResult)), {
   completeBlackCount: 0,
   completeBlankCount: 0,
   completeCornerCode: 'C6',
-  subjectBlackCount: 8,
-  subjectBlankCount: 40,
+  subjectBlackCount: 16,
+  subjectBlankCount: 24,
+  subjectColorCount: 9,
   subjectCenterCode: 'G3',
-  subjectCorner: null
+  subjectCorner: null,
+  detailPixelLuminance: 4,
+  detailPaletteHasBlack: true
 });
 assert.match(source, /if \(color && state\.view === 'codes'\)/, 'color codes must render for every non-empty cell');
 assert.doesNotMatch(source, /state\.view === 'codes' && cell >=/, 'mobile-sized cells must not hide their codes');
