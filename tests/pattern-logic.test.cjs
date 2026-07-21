@@ -83,6 +83,12 @@ vm.runInContext(`${prefix}
   });
   const flatDetection = analyzeTemplate(flatLinePixels);
   const gradientDetection = analyzeTemplate(gradientPixels);
+  state.featureEnhance = true;
+  const paleCells = Array.from({ length: 100 }, () => PALETTE_BY_CODE.get('H2'));
+  const averageFeaturePixels = Array.from({ length: 100 }, () => ({ r: 242, g: 238, b: 230 }));
+  const detailFeaturePixels = averageFeaturePixels.map(color => ({ ...color }));
+  detailFeaturePixels[55] = { r: 4, g: 4, b: 4 };
+  const preservedFeature = preserveDarkFeatureLines(paleCells, detailFeaturePixels, averageFeaturePixels);
   globalThis.testResult = {
     paletteCount: PALETTE.length,
     firstCode: PALETTE[0].code,
@@ -102,7 +108,8 @@ vm.runInContext(`${prefix}
     featureBlackCount: outlinedFeature.filter(color => color?.code === 'H7').length,
     twinEyeSeparator: outlinedTwinEyes[3 * 9 + 4].code,
     flatDetection: flatDetection.mode,
-    gradientDetection: gradientDetection.mode
+    gradientDetection: gradientDetection.mode,
+    preservedFeature: preservedFeature[55].code
   };
 `, context);
 
@@ -125,7 +132,8 @@ assert.deepEqual(JSON.parse(JSON.stringify(context.testResult)), {
   featureBlackCount: 17,
   twinEyeSeparator: 'H7',
   flatDetection: 'lineart',
-  gradientDetection: 'gradient'
+  gradientDetection: 'gradient',
+  preservedFeature: 'H7'
 });
 assert.match(source, /if \(color && state\.view === 'codes'\)/, 'color codes must render for every non-empty cell');
 assert.doesNotMatch(source, /state\.view === 'codes' && cell >=/, 'mobile-sized cells must not hide their codes');
@@ -136,6 +144,8 @@ assert.match(source, /MAX_HISTORY = 100/, 'manual editing must keep a bounded un
 assert.match(source, /initializePaletteSelect/, 'all MARD colors must be available for manual editing');
 assert.match(source, /savePreferences|restorePreferences/, 'manual settings must survive refresh');
 assert.match(source, /loadOnnxRuntime/, 'the AI runtime must be loaded lazily');
+assert.match(source, /preserveDarkFeatureLines/, 'gradient mode must preserve small dark facial features');
+assert.match(html, /id="featureEnhance"/, 'facial feature enhancement must be user-controllable');
 assert.doesNotMatch(html, /<script[^>]+ort\.min\.js/, 'ONNX runtime must not block the initial page load');
 
 console.log('pattern logic tests passed');

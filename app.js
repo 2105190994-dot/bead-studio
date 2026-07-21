@@ -34,6 +34,7 @@ const els = {
   compositionModes: [...document.querySelectorAll('input[name="compositionMode"]')],
   templateModes: [...document.querySelectorAll('input[name="templateMode"]')],
   templateDetection: document.querySelector('#templateDetection'),
+  featureEnhance: document.querySelector('#featureEnhance'),
   generateButton: document.querySelector('#generateButton'), emptyState: document.querySelector('#emptyState'),
   canvasWrap: document.querySelector('#canvasWrap'), patternCanvas: document.querySelector('#patternCanvas'),
   sourceCanvas: document.querySelector('#sourceCanvas'), processing: document.querySelector('#processing'),
@@ -52,7 +53,7 @@ const state = {
   image: null, fileName: '', cols: 96, rows: 96, colors: 16, cells: [], selectedColor: null,
   view: 'codes', zoom: 1, generated: false, compositionMode: 'all',
   templateMode: 'auto', detectedTemplate: 'lineart', detectionMetrics: null,
-  autoConfigured: false, gridCustomized: false, colorsCustomized: false,
+  autoConfigured: false, gridCustomized: false, colorsCustomized: false, featureEnhance: true,
   objectUrl: '', history: [], redoStack: []
 };
 
@@ -107,6 +108,7 @@ function savePreferences() {
       colors: state.colors,
       templateMode: state.templateMode,
       compositionMode: state.compositionMode,
+      featureEnhance: state.featureEnhance,
       gridCustomized: state.gridCustomized,
       colorsCustomized: state.colorsCustomized
     }));
@@ -123,8 +125,10 @@ function restorePreferences() {
     if (state.colorsCustomized) setColorCount(saved.colors);
     if (['auto', 'lineart', 'gradient'].includes(saved.templateMode)) state.templateMode = saved.templateMode;
     if (['all', 'subject'].includes(saved.compositionMode)) state.compositionMode = saved.compositionMode;
+    if (typeof saved.featureEnhance === 'boolean') state.featureEnhance = saved.featureEnhance;
     els.templateModes.forEach(input => { input.checked = input.value === state.templateMode; });
     els.compositionModes.forEach(input => { input.checked = input.value === state.compositionMode; });
+    els.featureEnhance.checked = state.featureEnhance;
   } catch (_) { /* Ignore corrupt or unavailable storage. */ }
 }
 
@@ -447,6 +451,39 @@ function quantizeGradient(pixels) {
   return result;
 }
 
+function preserveDarkFeatureLines(cells, detailPixels, averagePixels) {
+  if (!state.featureEnhance || !detailPixels || !averagePixels) return cells;
+  const lineArtSource = state.detectedTemplate === 'lineart';
+  const solidDetailLimit = lineArtSource ? 50 : 32;
+  const solidAverageLimit = lineArtSource ? 58 : 46;
+  const featureDetailLimit = lineArtSource ? 72 : 40;
+  const contrastLimit = lineArtSource ? 34 : 52;
+  const candidates = new Uint8Array(cells.length);
+  const solidDark = new Uint8Array(cells.length);
+  cells.forEach((color, index) => {
+    if (!color || !detailPixels[index] || !averagePixels[index]) return;
+    const detailLight = luminance(detailPixels[index]);
+    const averageLight = luminance(averagePixels[index]);
+    solidDark[index] = detailLight < solidDetailLimit && averageLight < solidAverageLimit ? 1 : 0;
+    if (solidDark[index] || (detailLight < featureDetailLimit && averageLight - detailLight > contrastLimit)) candidates[index] = 1;
+  });
+
+  const black = PALETTE_BY_CODE.get('H7');
+  return cells.map((color, index) => {
+    if (!color || !candidates[index]) return color;
+    const x = index % state.cols, y = Math.floor(index / state.cols);
+    let nearby = 0;
+    EIGHT_NEIGHBORS.forEach(([dx, dy]) => {
+      const nx = x + dx, ny = y + dy;
+      if (nx >= 0 && ny >= 0 && nx < state.cols && ny < state.rows && candidates[ny * state.cols + nx]) nearby += 1;
+    });
+    const detailLight = luminance(detailPixels[index]);
+    const minimumNeighbors = lineArtSource ? 1 : 2;
+    const isolatedPointLimit = lineArtSource ? 30 : 18;
+    return solidDark[index] || detailLight < isolatedPointLimit || nearby >= minimumNeighbors ? black : color;
+  });
+}
+
 function mergeSmallColorRegions(cells, minimumSize = 2) {
   let current = cells.slice();
   for (let pass = 0; pass < 3; pass++) {
@@ -734,12 +771,13 @@ function outlineLightFeatures(cells, subjectMask) {
   return outlined;
 }
 
-function composePattern(pixels, template = effectiveTemplate()) {
+function composePattern(pixels, template = effectiveTemplate(), detailPixels = null) {
   if (template === 'gradient') {
-    if (state.compositionMode === 'all') return quantizeGradient(pixels);
+    if (state.compositionMode === 'all') return preserveDarkFeatureLines(quantizeGradient(pixels), detailPixels, pixels);
     const subjectMask = extractSubjectMask(quantize(pixels, Math.min(18, state.colors)));
     const subjectPixels = pixels.map((pixel, index) => subjectMask[index] ? pixel : null);
-    return quantizeGradient(subjectPixels);
+    const subjectDetails = detailPixels?.map((pixel, index) => subjectMask[index] ? pixel : null) || null;
+    return preserveDarkFeatureLines(quantizeGradient(subjectPixels), subjectDetails, subjectPixels);
   }
 
   const draft = quantizeLineart(pixels);
@@ -769,8 +807,11 @@ function generatePattern() {
     } else if (template === 'gradient') {
       pixels = samplePixels(false);
     }
+    const detailPixels = template === 'gradient' && state.featureEnhance
+      ? samplePixels(true)
+      : null;
     updateTemplateDetection();
-    state.cells = composePattern(pixels, template);
+    state.cells = composePattern(pixels, template, detailPixels);
     state.generated = true; state.selectedColor = null;
     resetEditHistory();
     updateManualSelection();
@@ -1019,6 +1060,11 @@ els.templateModes.forEach(input => input.addEventListener('change', event => {
     scheduleGenerate();
   }
 }));
+els.featureEnhance.addEventListener('change', event => {
+  state.featureEnhance = event.target.checked;
+  savePreferences();
+  if (state.image) scheduleGenerate();
+});
 els.compositionModes.forEach(input => input.addEventListener('change', event => {
   if (!event.target.checked) return;
   state.compositionMode = event.target.value;
