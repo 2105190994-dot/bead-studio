@@ -256,7 +256,19 @@ function representativePixel(samples) {
   return average;
 }
 
-function samplePixels(detailBias = true) {
+function representativeHighlightPixel(samples) {
+  if (!samples.length) return null;
+  const average = averageRgb(samples);
+  const averageLight = luminance(average);
+  const threshold = Math.max(205, averageLight + 45);
+  const bright = samples.filter(color => luminance(color) >= threshold);
+  const minimumSamples = averageLight < 85 ? 1 : Math.max(2, Math.ceil(samples.length * .055));
+  if (bright.length < minimumSamples) return null;
+  const highlight = averageRgb(bright);
+  return luminance(highlight) - averageLight >= 42 ? highlight : null;
+}
+
+function samplePixelLayers() {
   const ratio = state.image.naturalHeight / state.image.naturalWidth;
   state.rows = Math.max(1, Math.round(state.cols * ratio));
   const sampleWidth = state.cols * DETAIL_SAMPLE_SCALE;
@@ -267,7 +279,7 @@ function samplePixels(detailBias = true) {
   sourceCtx.imageSmoothingQuality = 'high';
   sourceCtx.drawImage(state.image, 0, 0, sampleWidth, sampleHeight);
   const data = sourceCtx.getImageData(0, 0, sampleWidth, sampleHeight).data;
-  const pixels = [];
+  const average = [], detail = [], highlight = [];
   for (let y = 0; y < state.rows; y++) {
     for (let x = 0; x < state.cols; x++) {
       const samples = [];
@@ -279,10 +291,12 @@ function samplePixels(detailBias = true) {
           if (data[index + 3] >= 60) samples.push({ r: data[index], g: data[index + 1], b: data[index + 2] });
         }
       }
-      pixels.push(detailBias ? representativePixel(samples) : (samples.length ? averageRgb(samples) : null));
+      average.push(samples.length ? averageRgb(samples) : null);
+      detail.push(representativePixel(samples));
+      highlight.push(representativeHighlightPixel(samples));
     }
   }
-  return pixels;
+  return { average, detail, highlight };
 }
 
 function analyzeTemplate(pixels) {
@@ -481,6 +495,56 @@ function preserveDarkFeatureLines(cells, detailPixels, averagePixels) {
     const minimumNeighbors = lineArtSource ? 1 : 2;
     const isolatedPointLimit = lineArtSource ? 30 : 18;
     return solidDark[index] || detailLight < isolatedPointLimit || nearby >= minimumNeighbors ? black : color;
+  });
+}
+
+function preserveLightFeatureDetails(cells, highlightPixels, averagePixels) {
+  if (!state.featureEnhance || !highlightPixels || !averagePixels) return cells;
+  const lineArtSource = state.detectedTemplate === 'lineart';
+  const minimumHighlight = lineArtSource ? 205 : 228;
+  const minimumLocalContrast = lineArtSource ? 42 : 64;
+  const minimumCellLift = lineArtSource ? 38 : 54;
+  const candidates = new Uint8Array(cells.length);
+  highlightPixels.forEach((highlight, index) => {
+    const color = cells[index], average = averagePixels[index];
+    if (!highlight || !color || !average) return;
+    const highlightLight = luminance(highlight);
+    const averageLight = luminance(average);
+    const cellLight = luminance(color.rgb);
+    if (highlightLight >= minimumHighlight
+      && highlightLight - averageLight >= minimumLocalContrast
+      && highlightLight - cellLight >= minimumCellLift) {
+      candidates[index] = 1;
+    }
+  });
+
+  const usedPalette = [...new Map(cells.filter(Boolean).map(color => [color.code, color])).values()];
+  const white = PALETTE_BY_CODE.get('H1');
+  if (!usedPalette.some(color => color.code === 'H1')) usedPalette.push(white);
+  return cells.map((color, index) => {
+    const highlight = highlightPixels[index], average = averagePixels[index];
+    if (!color || !highlight || !average || !candidates[index]) return color;
+    const x = index % state.cols, y = Math.floor(index / state.cols);
+    let darkNeighbors = 0, candidateNeighbors = 0;
+    EIGHT_NEIGHBORS.forEach(([dx, dy]) => {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= state.cols || ny >= state.rows) return;
+      const next = ny * state.cols + nx;
+      if (cells[next] && luminance(cells[next].rgb) < 86) darkNeighbors += 1;
+      if (candidates[next]) candidateNeighbors += 1;
+    });
+    const cellLight = luminance(color.rgb);
+    const contrast = luminance(highlight) - luminance(average);
+    const insideDarkFeature = cellLight < 86;
+    const followsDarkEdge = darkNeighbors >= 2 || (darkNeighbors >= 1 && (candidateNeighbors >= 1 || contrast >= 75));
+    if (!insideDarkFeature && !followsDarkEdge) return color;
+    if (!lineArtSource && candidateNeighbors === 0 && darkNeighbors < 5) return color;
+
+    const channelMax = Math.max(highlight.r, highlight.g, highlight.b);
+    const channelMin = Math.min(highlight.r, highlight.g, highlight.b);
+    if (luminance(highlight) >= 238 && channelMax - channelMin <= 42) return white;
+    const replacement = nearestPaletteColor(highlight, usedPalette);
+    return luminance(replacement.rgb) >= cellLight + 32 ? replacement : color;
   });
 }
 
@@ -771,13 +835,18 @@ function outlineLightFeatures(cells, subjectMask) {
   return outlined;
 }
 
-function composePattern(pixels, template = effectiveTemplate(), detailPixels = null) {
+function composePattern(pixels, template = effectiveTemplate(), detailPixels = null, highlightPixels = null) {
   if (template === 'gradient') {
-    if (state.compositionMode === 'all') return preserveDarkFeatureLines(quantizeGradient(pixels), detailPixels, pixels);
+    if (state.compositionMode === 'all') {
+      const darkPreserved = preserveDarkFeatureLines(quantizeGradient(pixels), detailPixels, pixels);
+      return preserveLightFeatureDetails(darkPreserved, highlightPixels, pixels);
+    }
     const subjectMask = extractSubjectMask(quantize(pixels, Math.min(18, state.colors)));
     const subjectPixels = pixels.map((pixel, index) => subjectMask[index] ? pixel : null);
     const subjectDetails = detailPixels?.map((pixel, index) => subjectMask[index] ? pixel : null) || null;
-    return preserveDarkFeatureLines(quantizeGradient(subjectPixels), subjectDetails, subjectPixels);
+    const subjectHighlights = highlightPixels?.map((pixel, index) => subjectMask[index] ? pixel : null) || null;
+    const darkPreserved = preserveDarkFeatureLines(quantizeGradient(subjectPixels), subjectDetails, subjectPixels);
+    return preserveLightFeatureDetails(darkPreserved, subjectHighlights, subjectPixels);
   }
 
   const draft = quantizeLineart(pixels);
@@ -792,7 +861,8 @@ function generatePattern() {
   if (!state.image) { els.fileInput.click(); return; }
   els.processing.hidden = false;
   requestAnimationFrame(() => setTimeout(() => {
-    let pixels = samplePixels(true);
+    let layers = samplePixelLayers();
+    let pixels = layers.detail;
     if (!state.detectionMetrics || !state.autoConfigured) {
       state.detectionMetrics = analyzeTemplate(pixels);
       state.detectedTemplate = state.detectionMetrics.mode;
@@ -803,15 +873,13 @@ function generatePattern() {
       if (!state.gridCustomized) setGrid(defaults.cols, false);
       if (!state.colorsCustomized) setColorCount(defaults.colors);
       state.autoConfigured = true;
-      pixels = samplePixels(template === 'lineart');
-    } else if (template === 'gradient') {
-      pixels = samplePixels(false);
+      layers = samplePixelLayers();
     }
-    const detailPixels = template === 'gradient' && state.featureEnhance
-      ? samplePixels(true)
-      : null;
+    pixels = template === 'lineart' ? layers.detail : layers.average;
+    const detailPixels = template === 'gradient' && state.featureEnhance ? layers.detail : null;
+    const highlightPixels = template === 'gradient' && state.featureEnhance ? layers.highlight : null;
     updateTemplateDetection();
-    state.cells = composePattern(pixels, template, detailPixels);
+    state.cells = composePattern(pixels, template, detailPixels, highlightPixels);
     state.generated = true; state.selectedColor = null;
     resetEditHistory();
     updateManualSelection();

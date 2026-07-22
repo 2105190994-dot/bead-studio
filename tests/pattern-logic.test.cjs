@@ -89,6 +89,15 @@ vm.runInContext(`${prefix}
   const detailFeaturePixels = averageFeaturePixels.map(color => ({ ...color }));
   detailFeaturePixels[55] = { r: 4, g: 4, b: 4 };
   const preservedFeature = preserveDarkFeatureLines(paleCells, detailFeaturePixels, averageFeaturePixels);
+  const sampledHighlight = representativeHighlightPixel([
+    ...Array.from({ length: 35 }, () => ({ r: 2, g: 2, b: 2 })),
+    { r: 252, g: 250, b: 247 }
+  ]);
+  const darkFeatureCells = Array.from({ length: 100 }, () => PALETTE_BY_CODE.get('H7'));
+  const darkAveragePixels = Array.from({ length: 100 }, () => ({ r: 8, g: 8, b: 8 }));
+  const highlightFeaturePixels = Array(100).fill(null);
+  highlightFeaturePixels[55] = { r: 252, g: 250, b: 247 };
+  const preservedHighlight = preserveLightFeatureDetails(darkFeatureCells, highlightFeaturePixels, darkAveragePixels);
   globalThis.testResult = {
     paletteCount: PALETTE.length,
     firstCode: PALETTE[0].code,
@@ -109,7 +118,9 @@ vm.runInContext(`${prefix}
     twinEyeSeparator: outlinedTwinEyes[3 * 9 + 4].code,
     flatDetection: flatDetection.mode,
     gradientDetection: gradientDetection.mode,
-    preservedFeature: preservedFeature[55].code
+    preservedFeature: preservedFeature[55].code,
+    sampledHighlightLuminance: Math.round(luminance(sampledHighlight)),
+    preservedHighlight: preservedHighlight[55].code
   };
 `, context);
 
@@ -133,7 +144,9 @@ assert.deepEqual(JSON.parse(JSON.stringify(context.testResult)), {
   twinEyeSeparator: 'H7',
   flatDetection: 'lineart',
   gradientDetection: 'gradient',
-  preservedFeature: 'H7'
+  preservedFeature: 'H7',
+  sampledHighlightLuminance: 250,
+  preservedHighlight: 'H1'
 });
 assert.match(source, /if \(color && state\.view === 'codes'\)/, 'color codes must render for every non-empty cell');
 assert.doesNotMatch(source, /state\.view === 'codes' && cell >=/, 'mobile-sized cells must not hide their codes');
@@ -145,6 +158,8 @@ assert.match(source, /initializePaletteSelect/, 'all MARD colors must be availab
 assert.match(source, /savePreferences|restorePreferences/, 'manual settings must survive refresh');
 assert.match(source, /loadOnnxRuntime/, 'the AI runtime must be loaded lazily');
 assert.match(source, /preserveDarkFeatureLines/, 'gradient mode must preserve small dark facial features');
+assert.match(source, /preserveLightFeatureDetails/, 'gradient mode must preserve small bright highlights near dark features');
+assert.match(source, /samplePixelLayers/, 'average, dark-detail, and highlight samples must be collected in one efficient pass');
 assert.match(html, /id="featureEnhance"/, 'facial feature enhancement must be user-controllable');
 assert.doesNotMatch(html, /<script[^>]+ort\.min\.js/, 'ONNX runtime must not block the initial page load');
 

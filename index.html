@@ -8,7 +8,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <script>
-    window.BEAD_STUDIO_VERSION = '11';
+    window.BEAD_STUDIO_VERSION = '12';
     (async () => {
       try {
         const response = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
@@ -27,7 +27,7 @@
     })();
   </script>
   <title>豆格工坊 · 图片转拼豆图纸</title>
-  <link rel="stylesheet" href="styles.css?v=11" />
+  <link rel="stylesheet" href="styles.css?v=12" />
 </head>
 <body>
   <div class="noise" aria-hidden="true"></div>
@@ -132,7 +132,7 @@
           <p id="templateDetection" class="template-detection">上传图片后自动分析</p>
           <label class="feature-enhance">
             <input id="featureEnhance" type="checkbox" checked />
-            <span><b>五官 / 细线增强</b><small>在高清渐变中保留眼睛、鼻子、嘴和细轮廓</small><i aria-hidden="true"></i></span>
+            <span><b>五官 / 明暗细节增强</b><small>保留瞳孔高光、鼻嘴、细轮廓与贴边亮点</small><i aria-hidden="true"></i></span>
           </label>
         </fieldset>
 
@@ -326,6 +326,6 @@
 
   <footer><span>豆格工坊 · 为每一颗小豆子找到位置</span><span>在本地运行，不上传你的图片</span></footer>
   <canvas id="sourceCanvas" hidden></canvas>
-  <script src="app.js?v=11"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>
